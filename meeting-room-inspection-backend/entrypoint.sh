@@ -4,7 +4,8 @@ set -e
 echo "Waiting for PostgreSQL database to be ready..."
 until python -c "
 import psycopg, os
-conn = psycopg.connect(os.environ.get('DATABASE_URL'))
+url = os.environ.get('DATABASE_URL', '').replace('+psycopg', '')
+conn = psycopg.connect(url)
 conn.close()
 " 2>/dev/null; do
   echo "PostgreSQL is unavailable - sleeping 1s"
