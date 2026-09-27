@@ -52,7 +52,7 @@
           />
           <div v-else class="placeholder-box">
             <img
-              :src="'/uploads/standards/RM301_FRONT.JPG'"
+              :src="frontStandardUrl"
               class="standard-overlay"
               alt="基准参考"
             />
@@ -108,7 +108,7 @@
           />
           <div v-else class="placeholder-box">
             <img
-              :src="'/uploads/standards/RM301_REAR.JPG'"
+              :src="rearStandardUrl"
               class="standard-overlay"
               alt="基准参考"
             />
@@ -316,7 +316,17 @@ const abnormalCount = computed(() => {
   return results.value.filter((r) => r.final_status === 'ABNORMAL').length
 })
 
-const indicatorNames: Record<number, string> = {
+const standardPhotos = ref<any[]>([])
+const frontStandardUrl = computed(() => {
+  const p = standardPhotos.value.find((item) => item.photo_type === 'FRONT')
+  return p ? p.photo_url : '/uploads/standards/RM301_FRONT.JPG'
+})
+const rearStandardUrl = computed(() => {
+  const p = standardPhotos.value.find((item) => item.photo_type === 'REAR')
+  return p ? p.photo_url : '/uploads/standards/RM301_REAR.JPG'
+})
+
+const indicatorNames = ref<Record<number, string>>({
   1: '灯',
   2: '空调',
   3: '电脑显示器',
@@ -324,10 +334,13 @@ const indicatorNames: Record<number, string> = {
   5: '桌面',
   6: '椅子',
   7: '白板',
-}
+  8: '大屏电视/会议平板',
+  9: '窗帘',
+  10: '茶水台',
+})
 
 const getIndicatorName = (indicatorId: number) => {
-  return indicatorNames[indicatorId] || `巡检项 #${indicatorId}`
+  return indicatorNames.value[indicatorId] || `巡检项 #${indicatorId}`
 }
 
 const loadTaskState = async () => {
@@ -340,11 +353,15 @@ const loadTaskState = async () => {
     const tRes = await taskApi.get(taskId)
     taskInfo.value = tRes.data
 
-    const rRes = await roomApi.get(taskInfo.value.room_id)
-    roomInfo.value = rRes.data
+    const [rRes, pRes, stdRes] = await Promise.all([
+      roomApi.get(taskInfo.value.room_id),
+      photoApi.byTask(taskId),
+      roomApi.getStandardPhotos(taskInfo.value.room_id).catch(() => ({ data: [] })),
+    ])
 
-    // Load existing photos
-    const pRes = await photoApi.byTask(taskId)
+    roomInfo.value = rRes.data
+    standardPhotos.value = stdRes.data || []
+
     frontPhoto.value = pRes.data.find((p) => p.photo_type === 'FRONT') || null
     rearPhoto.value = pRes.data.find((p) => p.photo_type === 'REAR') || null
 

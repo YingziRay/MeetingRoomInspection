@@ -162,6 +162,39 @@ def seed():
                 "enabled": True,
                 "sort_order": 7,
             },
+            {
+                "indicator_code": "I008",
+                "indicator_name": "大屏电视/会议平板",
+                "category": "DEVICE",
+                "description": "检查交互式会议平板或大屏显示器是否关闭",
+                "normal_condition": "会议平板黑屏熄灭，处于待机/断电状态",
+                "abnormal_condition": "会议平板处于开启亮屏、投屏或白板残留状态",
+                "ai_supported": True,
+                "enabled": True,
+                "sort_order": 8,
+            },
+            {
+                "indicator_code": "I009",
+                "indicator_name": "窗帘",
+                "category": "ENVIRONMENT",
+                "description": "检查百叶窗或布艺遮光窗帘是否拉齐整洁",
+                "normal_condition": "窗帘整齐收拢于两侧或百叶窗调平整齐",
+                "abnormal_condition": "窗帘半拉悬挂扭曲、遮挡通风口或杂乱无章",
+                "ai_supported": True,
+                "enabled": True,
+                "sort_order": 9,
+            },
+            {
+                "indicator_code": "I010",
+                "indicator_name": "茶水台",
+                "category": "ENVIRONMENT",
+                "description": "检查独立会议室茶水吧台是否收拾干净",
+                "normal_condition": "茶水台面干燥整洁，纸杯归位，垃圾桶未满溢",
+                "abnormal_condition": "台面水渍横流、散落茶叶包装袋或垃圾溢出",
+                "ai_supported": True,
+                "enabled": True,
+                "sort_order": 10,
+            },
         ]
 
         indicators_map = {}
@@ -347,6 +380,55 @@ def seed():
                 db.add(link)
         db.commit()
         print("✓ Room indicators successfully bound.")
+
+        # 7. Additional Preset Rooms (Room 302 & VIP Boardroom)
+        room_302 = db.scalar(select(MeetingRoom).where(MeetingRoom.room_code == "RM-302"))
+        if not room_302:
+            room_302 = MeetingRoom(
+                room_code="RM-302",
+                room_name="302研讨室",
+                building="总部研发大楼",
+                floor="3F",
+                location_desc="3楼西侧中型研讨室（配备MAXHUB会议平板，无传统投影）",
+                status="ACTIVE",
+                inspection_enabled=True,
+            )
+            db.add(room_302)
+            db.commit()
+            db.refresh(room_302)
+
+            db.add(StandardPhoto(room_id=room_302.id, photo_type="FRONT", photo_url="/uploads/standards/RM301_FRONT.JPG", shoot_position="正门口地标A", camera_direction="对准主研讨桌及会议平板", version=1, status="ACTIVE"))
+            db.add(StandardPhoto(room_id=room_302.id, photo_type="REAR", photo_url="/uploads/standards/RM301_REAR.JPG", shoot_position="后方发言台地标B", camera_direction="对准空调及后门", version=1, status="ACTIVE"))
+            db.commit()
+
+            for idx, c in enumerate(["I001", "I002", "I003", "I005", "I006", "I007", "I008"]):
+                db.add(RoomIndicator(room_id=room_302.id, indicator_id=indicators_map[c].id, enabled=True, sort_order=idx + 1))
+            db.commit()
+            print(f"✓ Preset Meeting room 302 ready (id={room_302.id}).")
+
+        room_vip = db.scalar(select(MeetingRoom).where(MeetingRoom.room_code == "RM-VIP"))
+        if not room_vip:
+            room_vip = MeetingRoom(
+                room_code="RM-VIP",
+                room_name="VIP董事会议室",
+                building="总部行政大楼",
+                floor="8F",
+                location_desc="8楼东侧高规格接待室（含独立茶水台与电动遮光帘）",
+                status="ACTIVE",
+                inspection_enabled=True,
+            )
+            db.add(room_vip)
+            db.commit()
+            db.refresh(room_vip)
+
+            db.add(StandardPhoto(room_id=room_vip.id, photo_type="FRONT", photo_url="/uploads/standards/RM301_FRONT.JPG", shoot_position="双开大门入口处", camera_direction="对准实木圆桌及大屏", version=1, status="ACTIVE"))
+            db.add(StandardPhoto(room_id=room_vip.id, photo_type="REAR", photo_url="/uploads/standards/RM301_REAR.JPG", shoot_position="全景主位", camera_direction="对准茶水台及后侧窗帘", version=1, status="ACTIVE"))
+            db.commit()
+
+            for idx, c in enumerate(["I001", "I002", "I005", "I006", "I008", "I009", "I010"]):
+                db.add(RoomIndicator(room_id=room_vip.id, indicator_id=indicators_map[c].id, enabled=True, sort_order=idx + 1))
+            db.commit()
+            print(f"✓ Preset Meeting room VIP ready (id={room_vip.id}).")
 
         print("\nAll seed data initialized successfully! 🎉")
 

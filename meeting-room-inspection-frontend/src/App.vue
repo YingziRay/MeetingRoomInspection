@@ -1,10 +1,12 @@
 <template>
-  <div class="app-container">
+  <div class="app-container" :class="{ 'wide-mode': route.meta.wide }">
     <router-view />
   </div>
 </template>
 
 <script setup lang="ts">
+import { useRoute } from 'vue-router'
+const route = useRoute()
 </script>
 
 <style>
@@ -27,5 +29,12 @@ body {
   min-height: 100vh;
   background-color: #fff;
   position: relative;
+  transition: max-width 0.2s ease;
+}
+
+.app-container.wide-mode {
+  max-width: 1320px;
+  background-color: #f7f8fa;
 }
 </style>
+

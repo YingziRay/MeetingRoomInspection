@@ -1,6 +1,8 @@
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
+    dashboard,
+    indicators,
     inspection_tasks,
     notifications,
     photos,
@@ -10,7 +12,11 @@ from app.api.v1.endpoints import (
 
 api_router = APIRouter()
 
+api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 api_router.include_router(rooms.router, prefix="/rooms", tags=["rooms"])
+api_router.include_router(
+    indicators.router, prefix="/indicators", tags=["indicators"]
+)
 api_router.include_router(
     inspection_tasks.router, prefix="/inspection-tasks", tags=["inspection-tasks"]
 )

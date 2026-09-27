@@ -73,12 +73,79 @@ def generate_tasks(
     return created
 
 
+@router.get("")
+def list_tasks(
+    page: int = 1,
+    page_size: int = 50,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    room_id: int | None = None,
+    period: str | None = None,
+    status: str | None = None,
+    has_abnormal: bool | None = None,
+    db: Session = Depends(get_db),
+):
+    from app.api.v1.endpoints.dashboard import list_inspection_tasks_ledger
+    from datetime import datetime
+    s_date = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else None
+    e_date = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else None
+    return list_inspection_tasks_ledger(
+        page=page,
+        page_size=page_size,
+        start_date=s_date,
+        end_date=e_date,
+        room_id=room_id,
+        period=period,
+        status_filter=status,
+        has_abnormal=has_abnormal,
+        db=db,
+    )
+
+
 @router.get("/{task_id}", response_model=TaskResponse)
 def get_task(task_id: int, db: Session = Depends(get_db)):
     task = db.get(InspectionTask, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
     return task
+
+
+@router.get("/{task_id}/detail")
+def get_task_detail(task_id: int, db: Session = Depends(get_db)):
+    task = db.get(InspectionTask, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
+    room = db.get(MeetingRoom, task.room_id)
+    photos = db.scalars(select(InspectionPhoto).where(InspectionPhoto.task_id == task_id)).all()
+    results = db.scalars(select(InspectionResult).where(InspectionResult.task_id == task_id)).all()
+    indicators = {i.id: i for i in db.scalars(select(InspectionIndicator)).all()}
+
+    result_details = []
+    for r in results:
+        ind = indicators.get(r.indicator_id)
+        result_details.append({
+            "id": r.id,
+            "indicator_id": r.indicator_id,
+            "indicator_name": ind.indicator_name if ind else f"指标 #{r.indicator_id}",
+            "indicator_code": ind.indicator_code if ind else "",
+            "category": ind.category if ind else "",
+            "ai_status": r.ai_status,
+            "ai_confidence": float(r.ai_confidence) if r.ai_confidence else None,
+            "ai_reason": r.ai_reason,
+            "human_status": r.human_status,
+            "human_remark": r.human_remark,
+            "final_status": r.final_status,
+            "confirmed_by": r.confirmed_by,
+            "confirmed_at": r.confirmed_at,
+        })
+
+    return {
+        "task": task,
+        "room": room,
+        "photos": photos,
+        "results": result_details,
+    }
+
 
 
 @router.post("/{task_id}/start", response_model=TaskStartResponse)

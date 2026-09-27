@@ -1,6 +1,30 @@
 <template>
   <div class="task-list-page">
-    <van-nav-bar title="会议室智能巡检" fixed placeholder />
+    <van-nav-bar title="会议室智能巡检" fixed placeholder>
+      <template #right>
+        <div class="nav-btn-group">
+          <van-button
+            size="small"
+            plain
+            round
+            icon="chart-trending-o"
+            @click="goToDashboard"
+          >
+            大盘
+          </van-button>
+          <van-button
+            size="small"
+            type="primary"
+            plain
+            round
+            icon="apps-o"
+            @click="goToRooms"
+          >
+            会议室
+          </van-button>
+        </div>
+      </template>
+    </van-nav-bar>
 
     <!-- Notice Bar -->
     <van-notice-bar
@@ -32,10 +56,29 @@
       </van-button>
     </div>
 
+    <!-- Room Filter Chips -->
+    <div class="room-filter-scroller" v-if="rooms.length > 0">
+      <div
+        class="filter-chip"
+        :class="{ active: selectedRoomId === 0 }"
+        @click="selectedRoomId = 0"
+      >
+        全部会议室 ({{ tasks.length }})
+      </div>
+      <div
+        v-for="r in rooms"
+        :key="r.id"
+        class="filter-chip"
+        :class="{ active: selectedRoomId === r.id }"
+        @click="selectedRoomId = r.id"
+      >
+        {{ r.room_name }}
+      </div>
+    </div>
 
     <!-- Period Tabs -->
     <van-tabs v-model:active="activeTab" color="#1989fa" shrink sticky>
-      <van-tab title="全部" name="ALL" />
+      <van-tab title="全部时段" name="ALL" />
       <van-tab title="上午巡检" name="MORNING" />
       <van-tab title="中午巡检" name="NOON" />
       <van-tab title="晚间巡检" name="EVENING" />
@@ -51,13 +94,22 @@
           @click="goToInspect(task.id)"
         >
           <div class="task-card-header">
-            <span class="room-title">{{ roomNameMap[task.room_id] || '301会议室' }}</span>
+            <div class="title-wrap">
+              <span class="room-title">{{ roomNameMap[task.room_id] || '会议室' }}</span>
+              <van-tag type="primary" plain class="code-tag">
+                {{ roomCodeMap[task.room_id] || `ID:${task.room_id}` }}
+              </van-tag>
+            </div>
             <van-tag :type="getStatusTagType(task.status)">
               {{ getStatusLabel(task.status) }}
             </van-tag>
           </div>
 
           <div class="task-meta">
+            <div class="meta-item location-item" v-if="roomLocMap[task.room_id]">
+              <van-icon name="location-o" />
+              <span>{{ roomLocMap[task.room_id] }}</span>
+            </div>
             <div class="meta-item">
               <van-icon name="calendar-o" />
               <span>{{ task.inspection_date }} ({{ getPeriodLabel(task.period) }})</span>
@@ -78,7 +130,7 @@
         </div>
       </div>
 
-      <van-empty v-else description="暂无该时段的巡检任务" />
+      <van-empty v-else description="暂无符合条件的巡检任务" />
     </van-pull-refresh>
   </div>
 </template>
@@ -92,6 +144,7 @@ import type { InspectionTask, MeetingRoom } from '../types'
 
 const router = useRouter()
 const activeTab = ref('ALL')
+const selectedRoomId = ref(0)
 const tasks = ref<InspectionTask[]>([])
 const rooms = ref<MeetingRoom[]>([])
 const refreshing = ref(false)
@@ -118,6 +171,13 @@ const sendTestNotification = async () => {
   }
 }
 
+const goToRooms = () => {
+  router.push('/rooms')
+}
+
+const goToDashboard = () => {
+  router.push('/dashboard')
+}
 
 const roomNameMap = computed(() => {
   const map: Record<number, string> = {}
@@ -127,41 +187,59 @@ const roomNameMap = computed(() => {
   return map
 })
 
+const roomCodeMap = computed(() => {
+  const map: Record<number, string> = {}
+  rooms.value.forEach((r) => {
+    map[r.id] = r.room_code
+  })
+  return map
+})
+
+const roomLocMap = computed(() => {
+  const map: Record<number, string> = {}
+  rooms.value.forEach((r) => {
+    map[r.id] = `${r.building || '大楼'} · ${r.floor || ''} ${r.location_desc ? '（' + r.location_desc + '）' : ''}`
+  })
+  return map
+})
+
 const filteredTasks = computed(() => {
-  if (activeTab.value === 'ALL') return tasks.value
-  return tasks.value.filter((t) => t.period === activeTab.value)
+  return tasks.value.filter((t) => {
+    const matchPeriod = activeTab.value === 'ALL' || t.period === activeTab.value
+    const matchRoom = selectedRoomId.value === 0 || t.room_id === selectedRoomId.value
+    return matchPeriod && matchRoom
+  })
 })
 
 const loadData = async () => {
   try {
     // 1. Load Rooms
-    const roomRes = await roomApi.list()
+    const roomRes = await roomApi.list({ status: 'ACTIVE' })
     rooms.value = roomRes.data.items || []
 
-    // 2. Load today's generated tasks (simulated list for MVP)
+    // 2. Load today's generated tasks for all rooms
     const today = new Date().toISOString().split('T')[0]
-    // Fetch for MORNING, NOON, EVENING
     const allTasks: InspectionTask[] = []
     for (const p of ['MORNING', 'NOON', 'EVENING']) {
       try {
         const res = await taskApi.generate(today, p)
         allTasks.push(...res.data)
       } catch (e) {
-        // Task might already exist
+        // ignore
       }
     }
-    // Deduplicate by task id
     const unique = Array.from(new Map(allTasks.map((t) => [t.id, t])).values())
     unique.sort((a, b) => b.id - a.id)
     tasks.value = unique
   } catch (err: any) {
     showToast('加载巡检任务失败: ' + (err.message || '网络异常'))
+  } finally {
+    refreshing.value = false
   }
 }
 
 const onRefresh = async () => {
   await loadData()
-  refreshing.value = false
 }
 
 const generateTodayTask = async () => {
@@ -171,7 +249,7 @@ const generateTodayTask = async () => {
     await taskApi.generate(today, 'MORNING')
     await taskApi.generate(today, 'NOON')
     await taskApi.generate(today, 'EVENING')
-    showSuccessToast('已生成今日巡检任务')
+    showSuccessToast('已为全部会议室生成今日任务')
     await loadData()
   } catch (e: any) {
     showToast('生成失败: ' + e.message)
@@ -242,13 +320,46 @@ onMounted(() => {
   padding-bottom: 24px;
 }
 
+.nav-btn-group {
+  display: flex;
+  gap: 6px;
+}
+
 .quick-action-bar {
-  padding: 12px 16px 4px 16px;
+  padding: 12px 16px 8px 16px;
   display: flex;
   justify-content: space-between;
   gap: 8px;
 }
 
+.room-filter-scroller {
+  display: flex;
+  overflow-x: auto;
+  padding: 4px 16px 8px;
+  gap: 8px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.room-filter-scroller::-webkit-scrollbar {
+  display: none;
+}
+
+.filter-chip {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border-radius: 14px;
+  background-color: #f2f3f5;
+  color: #646566;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.filter-chip.active {
+  background-color: #e8f4ff;
+  color: #1989fa;
+  font-weight: 600;
+}
 
 .task-cards-container {
   padding: 12px 16px;
@@ -272,7 +383,13 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
+}
+
+.title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .room-title {
@@ -281,8 +398,18 @@ onMounted(() => {
   color: #323233;
 }
 
+.code-tag {
+  font-size: 11px;
+}
+
 .task-meta {
   margin-bottom: 12px;
+}
+
+.location-item {
+  color: #969799;
+  font-size: 12px;
+  margin-bottom: 6px;
 }
 
 .meta-item {

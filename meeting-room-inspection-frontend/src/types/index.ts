@@ -64,3 +64,40 @@ export interface PhotoUploadResponse {
   blur_score?: number
   brightness?: number
 }
+
+export interface InspectionIndicator {
+  id: number
+  indicator_code: string
+  indicator_name: string
+  category?: string
+  description?: string
+  normal_condition?: string
+  abnormal_condition?: string
+  ai_supported: boolean
+  enabled: boolean
+  sort_order: number
+}
+
+export interface RoomIndicatorItem {
+  id: number
+  room_id: number
+  indicator_id: number
+  indicator_code: string
+  indicator_name: string
+  category?: string
+  enabled: boolean
+  sort_order: number
+}
+
+export interface StandardPhoto {
+  id: number
+  room_id: number
+  photo_type: 'FRONT' | 'REAR' | string
+  photo_url: string
+  shoot_position?: string
+  camera_direction?: string
+  version: number
+  status: string
+  created_at?: string
+}
+
