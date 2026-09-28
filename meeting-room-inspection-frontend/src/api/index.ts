@@ -44,7 +44,7 @@ export const roomApi = {
   // 上传基准照片
   uploadStandardPhoto: (
     roomId: number,
-    photoType: 'FRONT' | 'REAR',
+    photoType: 'FRONT' | 'REAR' | 'AC_PANEL' | string,
     file: File,
     shootPosition?: string,
     cameraDirection?: string
@@ -64,6 +64,15 @@ export const indicatorApi = {
   // 获取系统所有可用巡检指标
   list: (params?: { category?: string; enabled_only?: boolean }) =>
     apiClient.get<InspectionIndicator[]>('/indicators', { params }),
+  // 新建自定义巡检指标
+  create: (data: Partial<InspectionIndicator>) =>
+    apiClient.post<InspectionIndicator>('/indicators', data),
+  // 编辑指标
+  update: (id: number, data: Partial<InspectionIndicator>) =>
+    apiClient.patch<InspectionIndicator>(`/indicators/${id}`, data),
+  // 删除指标
+  delete: (id: number) =>
+    apiClient.delete<{ success: boolean; message: string }>(`/indicators/${id}`),
 }
 
 export const taskApi = {
@@ -90,7 +99,7 @@ export const taskApi = {
 
 export const photoApi = {
   // 上传照片（multipart/form-data）
-  upload: (taskId: number, photoType: 'FRONT' | 'REAR', file: File) => {
+  upload: (taskId: number, photoType: 'FRONT' | 'REAR' | 'AC_PANEL' | string, file: File) => {
     const formData = new FormData()
     formData.append('task_id', taskId.toString())
     formData.append('photo_type', photoType)

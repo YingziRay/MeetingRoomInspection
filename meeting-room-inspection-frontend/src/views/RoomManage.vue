@@ -1,7 +1,7 @@
 <template>
   <div class="room-manage-page">
     <van-nav-bar
-      title="会议室档案与配置"
+      :title="activeMainTab === 'rooms' ? '会议室档案管理' : '巡检指标库维护'"
       left-text="返回"
       left-arrow
       fixed
@@ -9,91 +9,207 @@
       @click-left="goBack"
     >
       <template #right>
-        <van-button type="primary" size="small" round icon="plus" @click="openAddDialog">
+        <van-button
+          v-if="activeMainTab === 'rooms'"
+          type="primary"
+          size="small"
+          round
+          icon="plus"
+          @click="openAddDialog"
+        >
           添加会议室
+        </van-button>
+        <van-button
+          v-else
+          type="primary"
+          size="small"
+          round
+          icon="plus"
+          @click="openAddIndicatorModal"
+        >
+          新增自定义指标
         </van-button>
       </template>
     </van-nav-bar>
 
-    <!-- Stats Bar -->
-    <div class="stats-overview">
-      <div class="stat-box">
-        <span class="stat-num">{{ rooms.length }}</span>
-        <span class="stat-label">总会议室数</span>
+    <!-- Top Main Tabs -->
+    <van-tabs v-model:active="activeMainTab" color="#1989fa" line-width="40px" sticky>
+      <van-tab :title="`会议室档案 (${rooms.length})`" name="rooms" />
+      <van-tab :title="`巡检指标库 (${systemIndicators.length})`" name="indicators" />
+    </van-tabs>
+
+    <!-- ================= TAB 1: ROOMS ================= -->
+    <div v-if="activeMainTab === 'rooms'" class="tab-content-wrap">
+      <!-- Stats Bar -->
+      <div class="stats-overview">
+        <div class="stat-box">
+          <span class="stat-num">{{ rooms.length }}</span>
+          <span class="stat-label">总会议室数</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-num text-success">{{ activeRoomsCount }}</span>
+          <span class="stat-label">参与巡检中</span>
+        </div>
+        <div class="stat-box" @click="activeMainTab = 'indicators'">
+          <span class="stat-num text-primary">{{ systemIndicators.length }}</span>
+          <span class="stat-label">可用指标项 ⚙️</span>
+        </div>
       </div>
-      <div class="stat-box">
-        <span class="stat-num text-success">{{ activeRoomsCount }}</span>
-        <span class="stat-label">参与巡检中</span>
-      </div>
-      <div class="stat-box">
-        <span class="stat-num text-primary">{{ systemIndicators.length }}</span>
-        <span class="stat-label">可用指标库</span>
-      </div>
+
+      <!-- Room Cards -->
+      <van-pull-refresh v-model="refreshing" @refresh="loadData">
+        <div v-if="rooms.length > 0" class="room-list-container">
+          <div v-for="room in rooms" :key="room.id" class="room-card">
+            <div class="card-header">
+              <div class="title-wrap">
+                <span class="room-title">{{ room.room_name }}</span>
+                <van-tag type="primary" plain class="code-tag">{{ room.room_code }}</van-tag>
+              </div>
+              <van-tag :type="room.inspection_enabled ? 'success' : 'default'">
+                {{ room.inspection_enabled ? '巡检中' : '已暂停' }}
+              </van-tag>
+            </div>
+
+            <div class="location-desc">
+              <van-icon name="location-o" />
+              <span>{{ room.building || '总部大楼' }} · {{ room.floor || '1F' }}</span>
+              <span v-if="room.location_desc" class="desc-text">（{{ room.location_desc }}）</span>
+            </div>
+
+            <!-- Configuration Status Badges -->
+            <div class="config-badges">
+              <div class="badge-item" @click="openIndicatorsDialog(room)">
+                <van-icon name="todo-list-o" />
+                <span>已绑定 {{ roomIndicatorsMap[room.id]?.length || 0 }} 项指标</span>
+                <van-icon name="arrow" class="arrow-right" />
+              </div>
+              <div class="badge-item" @click="openPhotosDialog(room)">
+                <van-icon name="photograph" />
+                <span>基准图: {{ getPhotosStatusText(room.id) }}</span>
+                <van-icon name="arrow" class="arrow-right" />
+              </div>
+            </div>
+
+            <!-- Card Actions -->
+            <div class="card-footer">
+              <div class="switch-wrap">
+                <span class="switch-label">开启巡检</span>
+                <van-switch
+                  :model-value="room.inspection_enabled"
+                  size="18px"
+                  @update:model-value="(val: boolean) => toggleRoomInspection(room, val)"
+                />
+              </div>
+              <div class="btn-group">
+                <van-button size="small" plain type="primary" icon="setting-o" @click="openIndicatorsDialog(room)">
+                  配置指标
+                </van-button>
+                <van-button size="small" plain type="success" icon="photo-o" @click="openPhotosDialog(room)">
+                  基准图
+                </van-button>
+                <van-button size="small" plain icon="edit" @click="openEditDialog(room)">
+                  编辑
+                </van-button>
+                <van-button size="small" plain type="danger" icon="delete-o" @click="confirmDeleteRoom(room)">
+                  删除
+                </van-button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <van-empty v-else description="暂无会议室档案，请点击右上角添加" />
+      </van-pull-refresh>
     </div>
 
-    <!-- Room Cards -->
-    <van-pull-refresh v-model="refreshing" @refresh="loadData">
-      <div v-if="rooms.length > 0" class="room-list-container">
-        <div v-for="room in rooms" :key="room.id" class="room-card">
-          <div class="card-header">
-            <div class="title-wrap">
-              <span class="room-title">{{ room.room_name }}</span>
-              <van-tag type="primary" plain class="code-tag">{{ room.room_code }}</van-tag>
+    <!-- ================= TAB 2: INDICATORS MANAGEMENT ================= -->
+    <div v-else class="tab-content-wrap">
+      <!-- Tip Bar -->
+      <van-notice-bar
+        left-icon="info-o"
+        text="系统默认项（灯、空调、桌椅等）受底层保护不可删除。支持自由添加自定义指标，AI将根据填写的判定标准进行多模态研判。"
+      />
+
+      <!-- Quick Action Header -->
+      <div class="indicators-tool-bar">
+        <div class="filter-chips-row">
+          <button
+            class="chip-btn"
+            :class="{ active: indicatorCategoryFilter === 'ALL' }"
+            @click="indicatorCategoryFilter = 'ALL'"
+          >
+            全部 ({{ systemIndicators.length }})
+          </button>
+          <button
+            class="chip-btn"
+            :class="{ active: indicatorCategoryFilter === 'DEVICE' }"
+            @click="indicatorCategoryFilter = 'DEVICE'"
+          >
+            设备类
+          </button>
+          <button
+            class="chip-btn"
+            :class="{ active: indicatorCategoryFilter === 'ENVIRONMENT' }"
+            @click="indicatorCategoryFilter = 'ENVIRONMENT'"
+          >
+            环境类
+          </button>
+          <button
+            class="chip-btn"
+            :class="{ active: indicatorCategoryFilter === 'CUSTOM' }"
+            @click="indicatorCategoryFilter = 'CUSTOM'"
+          >
+            自定义项 ({{ customIndicatorsCount }})
+          </button>
+        </div>
+      </div>
+
+      <!-- Indicators List -->
+      <div class="indicators-card-list">
+        <div
+          v-for="ind in filteredIndicators"
+          :key="ind.id"
+          class="indicator-item-card"
+        >
+          <div class="ind-head">
+            <div class="ind-left">
+              <span class="ind-title">{{ ind.indicator_name }}</span>
+              <van-tag :type="ind.category === 'DEVICE' ? 'primary' : 'warning'" plain>
+                {{ ind.category === 'DEVICE' ? '设备设施' : '环境卫生' }}
+              </van-tag>
+              <van-tag type="default" plain>
+                {{ ind.photo_perspective === 'REAR' ? '后视角核验' : (ind.photo_perspective === 'AC_PANEL' ? '空调面板核验' : '前视角核验') }}
+              </van-tag>
+              <van-tag v-if="!ind.is_custom" color="#7232dd" plain>
+                <van-icon name="lock" /> 默认标准
+              </van-tag>
+              <van-tag v-else color="#07c160" plain>
+                自定义
+              </van-tag>
             </div>
-            <van-tag :type="room.inspection_enabled ? 'success' : 'default'">
-              {{ room.inspection_enabled ? '巡检中' : '已暂停' }}
-            </van-tag>
+            <div class="ind-right-actions">
+              <template v-if="ind.is_custom">
+                <van-button size="mini" plain icon="edit" @click="openEditIndicatorModal(ind)">编辑</van-button>
+                <van-button size="mini" plain type="danger" icon="delete-o" @click="handleDeleteIndicator(ind)">删除</van-button>
+              </template>
+              <span v-else class="system-locked-text">基准保留</span>
+            </div>
           </div>
 
-          <div class="location-desc">
-            <van-icon name="location-o" />
-            <span>{{ room.building || '总部大楼' }} · {{ room.floor || '1F' }}</span>
-            <span v-if="room.location_desc" class="desc-text">（{{ room.location_desc }}）</span>
-          </div>
-
-          <!-- Configuration Status Badges -->
-          <div class="config-badges">
-            <div class="badge-item" @click="openIndicatorsDialog(room)">
-              <van-icon name="todo-list-o" />
-              <span>已绑定 {{ roomIndicatorsMap[room.id]?.length || 0 }} 项指标</span>
-              <van-icon name="arrow" class="arrow-right" />
+          <div class="ind-criteria-box">
+            <div class="criteria-row">
+              <span class="c-tag green">✅ 正常：</span>
+              <span class="c-desc">{{ ind.normal_condition || '无异常，符合标准规范' }}</span>
             </div>
-            <div class="badge-item" @click="openPhotosDialog(room)">
-              <van-icon name="photograph" />
-              <span>基准图: {{ getPhotosStatusText(room.id) }}</span>
-              <van-icon name="arrow" class="arrow-right" />
-            </div>
-          </div>
-
-          <!-- Card Actions -->
-          <div class="card-footer">
-            <div class="switch-wrap">
-              <span class="switch-label">开启巡检</span>
-              <van-switch
-                :model-value="room.inspection_enabled"
-                size="18px"
-                @update:model-value="(val: boolean) => toggleRoomInspection(room, val)"
-              />
-            </div>
-            <div class="btn-group">
-              <van-button size="small" plain type="primary" icon="setting-o" @click="openIndicatorsDialog(room)">
-                指标
-              </van-button>
-              <van-button size="small" plain type="success" icon="photo-o" @click="openPhotosDialog(room)">
-                基准图
-              </van-button>
-              <van-button size="small" plain icon="edit" @click="openEditDialog(room)">
-                编辑
-              </van-button>
-              <van-button size="small" plain type="danger" icon="delete-o" @click="confirmDeleteRoom(room)">
-                删除
-              </van-button>
+            <div class="criteria-row">
+              <span class="c-tag red">❌ 异常：</span>
+              <span class="c-desc">{{ ind.abnormal_condition || '存在违规或未按要求整理' }}</span>
             </div>
           </div>
         </div>
       </div>
-      <van-empty v-else description="暂无会议室档案，请点击右上角添加" />
-    </van-pull-refresh>
+    </div>
+
+    <!-- ================= DIALOGS ================= -->
 
     <!-- Dialog 1: Add / Edit Room -->
     <van-dialog
@@ -143,7 +259,63 @@
       </div>
     </van-dialog>
 
-    <!-- Dialog 2: Indicator Configuration -->
+    <!-- Dialog 2: Add / Edit Custom Indicator -->
+    <van-dialog
+      v-model:show="showIndicatorFormDialog"
+      :title="isEditingIndicator ? '编辑自定义指标' : '新增自定义巡检指标'"
+      show-cancel-button
+      :confirm-button-text="isEditingIndicator ? '保存更新' : '立即创建'"
+      :before-close="handleSaveIndicatorForm"
+    >
+      <div class="dialog-form">
+        <van-cell-group inset>
+          <van-field
+            v-model="indicatorForm.indicator_name"
+            label="指标名称"
+            placeholder="例: 绿植盆栽 / 垃圾桶 / 门锁闭合"
+            required
+          />
+          <van-cell center title="指标分类">
+            <template #right-icon>
+              <select v-model="indicatorForm.category" class="inline-select">
+                <option value="ENVIRONMENT">环境卫生类</option>
+                <option value="DEVICE">设备设施类</option>
+              </select>
+            </template>
+          </van-cell>
+          <van-cell center title="拍照核验机位">
+            <template #right-icon>
+              <select v-model="indicatorForm.photo_perspective" class="inline-select">
+                <option value="FRONT">前视角 (主讲台/幕布)</option>
+                <option value="REAR">后视角 (入户门/后墙)</option>
+                <option value="AC_PANEL">空调开关界面 (墙面面板特写)</option>
+              </select>
+            </template>
+          </van-cell>
+          <van-field
+            v-model="indicatorForm.normal_condition"
+            label="正常标准"
+            type="textarea"
+            rows="2"
+            placeholder="例: 绿植枝叶翠绿茂盛，无枯黄或掉落杂叶"
+          />
+          <van-field
+            v-model="indicatorForm.abnormal_condition"
+            label="异常标准"
+            type="textarea"
+            rows="2"
+            placeholder="例: 绿植枯萎发黄，花盆或地面散落枯叶杂物"
+          />
+          <van-field
+            v-model="indicatorForm.description"
+            label="补充说明"
+            placeholder="可选填检查注意事项"
+          />
+        </van-cell-group>
+      </div>
+    </van-dialog>
+
+    <!-- Dialog 3: Room Indicator Configuration -->
     <van-dialog
       v-model:show="showIndicatorsDialog"
       :title="`配置指标 - ${currentRoom?.room_name}`"
@@ -171,9 +343,10 @@
               <template #title>
                 <div class="indicator-cell-title">
                   <span class="ind-name">{{ ind.indicator_name }}</span>
-                  <van-tag :type="ind.category === 'DEVICE' ? 'primary' : 'warning'" size="medium" plain>
+                  <van-tag :type="ind.category === 'DEVICE' ? 'primary' : 'warning'" plain>
                     {{ ind.category === 'DEVICE' ? '设备类' : '环境类' }}
                   </van-tag>
+                  <van-tag v-if="ind.is_custom" color="#07c160" plain>自定义</van-tag>
                 </div>
               </template>
               <template #right-icon>
@@ -185,7 +358,7 @@
       </div>
     </van-dialog>
 
-    <!-- Dialog 3: Standard Photos Management -->
+    <!-- Dialog 4: Standard Photos Management -->
     <van-popup
       v-model:show="showPhotosDialog"
       position="bottom"
@@ -253,6 +426,33 @@
               </van-uploader>
             </div>
           </div>
+
+          <!-- AC_PANEL Standard -->
+          <div class="standard-upload-card">
+            <div class="card-head">
+              <span class="perspective-tag ac">空调面板 (AC_PANEL)</span>
+              <span class="guide-tip">墙面温控面板平视特写</span>
+            </div>
+            <div class="preview-box">
+              <van-image
+                v-if="acPanelStandardPhoto"
+                :src="acPanelStandardPhoto.photo_url"
+                fit="cover"
+                class="photo-img"
+              />
+              <div v-else class="empty-photo">
+                <van-icon name="photograph" size="36" color="#c8c9cc" />
+                <span>暂未上传空调开关图</span>
+              </div>
+            </div>
+            <div class="upload-btn-wrap">
+              <van-uploader :after-read="(file: any) => handleUploadStandard('AC_PANEL', file)">
+                <van-button size="small" type="primary" plain round icon="upgrade">
+                  {{ acPanelStandardPhoto ? '更换空调面板图' : '上传空调面板照' }}
+                </van-button>
+              </van-uploader>
+            </div>
+          </div>
         </div>
       </div>
     </van-popup>
@@ -272,12 +472,26 @@ import type {
 } from '../types'
 
 const router = useRouter()
+const activeMainTab = ref('rooms')
 
 const rooms = ref<MeetingRoom[]>([])
 const systemIndicators = ref<InspectionIndicator[]>([])
 const roomIndicatorsMap = ref<Record<number, RoomIndicatorItem[]>>({})
 const roomPhotosMap = ref<Record<number, StandardPhoto[]>>({})
 const refreshing = ref(false)
+
+// Indicators tab filters
+const indicatorCategoryFilter = ref('ALL')
+
+const customIndicatorsCount = computed(() => {
+  return systemIndicators.value.filter((i) => i.is_custom).length
+})
+
+const filteredIndicators = computed(() => {
+  if (indicatorCategoryFilter.value === 'ALL') return systemIndicators.value
+  if (indicatorCategoryFilter.value === 'CUSTOM') return systemIndicators.value.filter((i) => i.is_custom)
+  return systemIndicators.value.filter((i) => i.category === indicatorCategoryFilter.value)
+})
 
 // Active count
 const activeRoomsCount = computed(() => {
@@ -296,6 +510,18 @@ const roomForm = ref<Partial<MeetingRoom>>({
   inspection_enabled: true,
 })
 
+// Indicator Form Modal
+const showIndicatorFormDialog = ref(false)
+const isEditingIndicator = ref(false)
+const indicatorForm = ref<Partial<InspectionIndicator>>({
+  indicator_name: '',
+  category: 'ENVIRONMENT',
+  photo_perspective: 'FRONT',
+  normal_condition: '',
+  abnormal_condition: '',
+  description: '',
+})
+
 // Indicator Dialog
 const showIndicatorsDialog = ref(false)
 const currentRoom = ref<MeetingRoom | null>(null)
@@ -310,6 +536,9 @@ const frontStandardPhoto = computed(() => {
 })
 const rearStandardPhoto = computed(() => {
   return currentRoomPhotos.value.find((p) => p.photo_type === 'REAR')
+})
+const acPanelStandardPhoto = computed(() => {
+  return currentRoomPhotos.value.find((p) => p.photo_type === 'AC_PANEL')
 })
 
 const goBack = () => {
@@ -334,11 +563,11 @@ const loadData = async () => {
         const photoRes = await roomApi.getStandardPhotos(r.id)
         roomPhotosMap.value[r.id] = photoRes.data || []
       } catch (e) {
-        // ignore individual room sub-fetch error
+        // ignore
       }
     }
   } catch (e: any) {
-    showToast('加载会议室档案失败: ' + (e.message || '网络异常'))
+    showToast('加载失败: ' + (e.message || '网络异常'))
   } finally {
     refreshing.value = false
   }
@@ -352,10 +581,14 @@ const getPhotosStatusText = (roomId: number) => {
   const photos = roomPhotosMap.value[roomId] || []
   const hasFront = photos.some((p) => p.photo_type === 'FRONT')
   const hasRear = photos.some((p) => p.photo_type === 'REAR')
+  const hasAc = photos.some((p) => p.photo_type === 'AC_PANEL')
+  if (hasFront && hasRear && hasAc) return '已齐备 (前/后/空调)'
   if (hasFront && hasRear) return '已齐备 (前/后)'
-  if (hasFront) return '仅前视角'
-  if (hasRear) return '仅后视角'
-  return '未上传'
+  const list = []
+  if (hasFront) list.push('前')
+  if (hasRear) list.push('后')
+  if (hasAc) list.push('空调')
+  return list.length ? `已传(${list.join('/')})` : '未上传'
 }
 
 // Add Room
@@ -434,7 +667,69 @@ const confirmDeleteRoom = (room: MeetingRoom) => {
   })
 }
 
-// Indicators Dialog
+// ================= Indicator CRUD =================
+
+const openAddIndicatorModal = () => {
+  isEditingIndicator.value = false
+  indicatorForm.value = {
+    indicator_name: '',
+    category: 'ENVIRONMENT',
+    photo_perspective: 'FRONT',
+    normal_condition: '',
+    abnormal_condition: '',
+    description: '',
+  }
+  showIndicatorFormDialog.value = true
+}
+
+const openEditIndicatorModal = (ind: InspectionIndicator) => {
+  isEditingIndicator.value = true
+  indicatorForm.value = { ...ind }
+  showIndicatorFormDialog.value = true
+}
+
+const handleSaveIndicatorForm = async (action: string) => {
+  if (action !== 'confirm') return true
+  if (!indicatorForm.value.indicator_name?.trim()) {
+    showToast('请输入指标名称')
+    return false
+  }
+
+  try {
+    if (isEditingIndicator.value && indicatorForm.value.id) {
+      await indicatorApi.update(indicatorForm.value.id, indicatorForm.value)
+      showSuccessToast('指标已更新')
+    } else {
+      await indicatorApi.create(indicatorForm.value)
+      showSuccessToast('新增自定义指标成功！')
+    }
+    await loadData()
+    return true
+  } catch (e: any) {
+    showToast('保存指标失败: ' + (e.response?.data?.detail || e.message))
+    return false
+  }
+}
+
+const handleDeleteIndicator = (ind: InspectionIndicator) => {
+  showDialog({
+    title: '确认删除指标？',
+    message: `确定删除自定义指标「${ind.indicator_name}」？系统将智能保护已有的历史巡检数据。`,
+    showCancelButton: true,
+    confirmButtonColor: '#ee0a24',
+  }).then(async () => {
+    try {
+      const res = await indicatorApi.delete(ind.id)
+      showSuccessToast(res.data?.message || '已成功删除')
+      await loadData()
+    } catch (e: any) {
+      showToast('删除失败: ' + (e.response?.data?.detail || e.message))
+    }
+  })
+}
+
+// ================= Room Indicator Config =================
+
 const openIndicatorsDialog = async (room: MeetingRoom) => {
   currentRoom.value = room
   const list = roomIndicatorsMap.value[room.id] || []
@@ -456,7 +751,6 @@ const selectAllIndicators = () => {
 }
 
 const selectCommonIndicators = () => {
-  // Common 7 indicators (I001 ~ I007)
   selectedIndicatorIds.value = systemIndicators.value
     .filter((i) => ['I001', 'I002', 'I003', 'I004', 'I005', 'I006', 'I007'].includes(i.indicator_code))
     .map((i) => i.id)
@@ -481,19 +775,20 @@ const handleSaveIndicators = async (action: string) => {
   }
 }
 
-// Photos Dialog
+// ================= Photos Dialog =================
+
 const openPhotosDialog = async (room: MeetingRoom) => {
   currentRoom.value = room
   currentRoomPhotos.value = roomPhotosMap.value[room.id] || []
   showPhotosDialog.value = true
 }
 
-const handleUploadStandard = async (photoType: 'FRONT' | 'REAR', fileObj: any) => {
+const handleUploadStandard = async (photoType: 'FRONT' | 'REAR' | 'AC_PANEL', fileObj: any) => {
   if (!currentRoom.value) return
   const file = fileObj.file || fileObj
   try {
     showToast({ message: '正在上传基准照片...', type: 'loading', duration: 0 })
-    const res = await roomApi.uploadStandardPhoto(currentRoom.value.id, photoType, file)
+    await roomApi.uploadStandardPhoto(currentRoom.value.id, photoType, file)
     showSuccessToast('基准照上传成功')
     
     // Refresh photos
@@ -513,6 +808,10 @@ const handleUploadStandard = async (photoType: 'FRONT' | 'REAR', fileObj: any) =
   min-height: 100vh;
 }
 
+.tab-content-wrap {
+  padding-top: 6px;
+}
+
 .stats-overview {
   display: flex;
   background: #ffffff;
@@ -526,6 +825,7 @@ const handleUploadStandard = async (photoType: 'FRONT' | 'REAR', fileObj: any) =
   display: flex;
   flex-direction: column;
   align-items: center;
+  cursor: pointer;
 }
 
 .stat-num {
@@ -647,11 +947,127 @@ const handleUploadStandard = async (photoType: 'FRONT' | 'REAR', fileObj: any) =
   gap: 6px;
 }
 
+/* Indicators Tab Styles */
+.indicators-tool-bar {
+  padding: 12px 14px;
+  background: #ffffff;
+  margin-bottom: 10px;
+}
+
+.filter-chips-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+}
+
+.chip-btn {
+  border: none;
+  background: #f2f3f5;
+  color: #646566;
+  padding: 5px 12px;
+  border-radius: 14px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chip-btn.active {
+  background: #e8f4ff;
+  color: #1989fa;
+  font-weight: 600;
+}
+
+.indicators-card-list {
+  padding: 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.indicator-item-card {
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 14px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.03);
+}
+
+.ind-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.ind-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ind-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #323233;
+}
+
+.ind-right-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.system-locked-text {
+  font-size: 11px;
+  color: #969799;
+}
+
+.ind-criteria-box {
+  background: #f7f8fa;
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.criteria-row {
+  display: flex;
+  line-height: 1.4;
+}
+
+.c-tag {
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.c-tag.green {
+  color: #07c160;
+}
+
+.c-tag.red {
+  color: #ee0a24;
+}
+
+.c-desc {
+  color: #646566;
+}
+
 /* Dialog Form */
 .dialog-form {
   padding: 12px 0;
-  max-height: 400px;
+  max-height: 420px;
   overflow-y: auto;
+}
+
+.inline-select {
+  border: 1px solid #dcdee0;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 13px;
+  background: #ffffff;
+  outline: none;
 }
 
 /* Indicators Dialog */
@@ -732,6 +1148,11 @@ const handleUploadStandard = async (photoType: 'FRONT' | 'REAR', fileObj: any) =
 .perspective-tag.rear {
   background: #f6edff;
   color: #7232dd;
+}
+
+.perspective-tag.ac {
+  background: #e6f7ff;
+  color: #0070cc;
 }
 
 .guide-tip {

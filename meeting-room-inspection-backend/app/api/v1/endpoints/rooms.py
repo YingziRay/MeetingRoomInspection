@@ -251,7 +251,7 @@ def get_room_standard_photos(room_id: int, db: Session = Depends(get_db)):
 @router.post("/{room_id}/standard-photos", response_model=StandardPhotoResponse)
 async def upload_room_standard_photo(
     room_id: int,
-    photo_type: str = Form(..., regex="^(FRONT|REAR)$"),
+    photo_type: str = Form(..., regex="^(FRONT|REAR|AC_PANEL)$"),
     shoot_position: str | None = Form(None),
     camera_direction: str | None = Form(None),
     file: UploadFile = File(...),
@@ -278,6 +278,18 @@ async def upload_room_standard_photo(
 
     photo_url = f"/uploads/standards/{filename}"
 
+    # 默认机位和镜头朝向字典
+    default_positions = {
+        "FRONT": "正向主会议桌视角",
+        "REAR": "背向门框及后墙视角",
+        "AC_PANEL": "墙面空调温控开关面板",
+    }
+    default_directions = {
+        "FRONT": "正对白板及前侧投影",
+        "REAR": "对准空调及后方设施",
+        "AC_PANEL": "特写近拍空调控制面板屏幕及开关状态",
+    }
+
     # 查找已有激活版本
     existing = db.scalar(
         select(StandardPhoto).where(
@@ -302,8 +314,8 @@ async def upload_room_standard_photo(
             room_id=room_id,
             photo_type=photo_type,
             photo_url=photo_url,
-            shoot_position=shoot_position or ("正向主会议桌视角" if photo_type == "FRONT" else "背向门框及后墙视角"),
-            camera_direction=camera_direction or ("正对白板及前侧投影" if photo_type == "FRONT" else "对准空调及后方设施"),
+            shoot_position=shoot_position or default_positions.get(photo_type, "特定设施机位"),
+            camera_direction=camera_direction or default_directions.get(photo_type, "对准目标设施"),
             version=1,
             status="ACTIVE",
         )

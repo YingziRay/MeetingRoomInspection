@@ -19,6 +19,8 @@ class InspectionIndicator(Base):
     normal_condition: Mapped[str | None] = mapped_column(Text, nullable=True)
     abnormal_condition: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_supported: Mapped[bool] = mapped_column(Boolean, default=True)
+    photo_perspective: Mapped[str] = mapped_column(String(20), default="FRONT", server_default="FRONT")
+    is_custom: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(

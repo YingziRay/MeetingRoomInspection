@@ -80,8 +80,13 @@ class AIInspectionService:
                 if std_photo:
                     photo_type = std_photo.photo_type
             else:
-                # Default categorisation by indicator code
-                if indicator.indicator_code in ("I002", "I003"):
+                # Default categorisation by custom photo_perspective or built-in indicator code
+                photo_type = getattr(indicator, "photo_perspective", "FRONT") or "FRONT"
+                if indicator.indicator_code == "I002":
+                    # 若现场或标准图中有 AC_PANEL，优先使用空调开关面板视角核验；否则降级为 REAR
+                    has_ac_panel = "AC_PANEL" in std_photo_map or any(lp.photo_type == "AC_PANEL" for lp in live_photos)
+                    photo_type = "AC_PANEL" if has_ac_panel else "REAR"
+                elif indicator.indicator_code == "I003":
                     photo_type = "REAR"
 
             all_indicators_info.append(

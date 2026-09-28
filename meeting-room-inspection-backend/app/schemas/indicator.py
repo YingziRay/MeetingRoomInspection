@@ -3,11 +3,36 @@ from pydantic import Field
 from app.schemas.common import APIModel
 
 
+class IndicatorCreate(APIModel):
+    indicator_name: str = Field(..., min_length=1, max_length=100)
+    indicator_code: str | None = Field(default=None, max_length=50)
+    category: str = Field(default="ENVIRONMENT", max_length=50)
+    photo_perspective: str = Field(default="FRONT", max_length=20)
+    description: str | None = None
+    normal_condition: str | None = None
+    abnormal_condition: str | None = None
+    ai_supported: bool = True
+    sort_order: int = 0
+
+
+class IndicatorUpdate(APIModel):
+    indicator_name: str | None = None
+    category: str | None = None
+    photo_perspective: str | None = None
+    description: str | None = None
+    normal_condition: str | None = None
+    abnormal_condition: str | None = None
+    enabled: bool | None = None
+    sort_order: int | None = None
+
+
 class IndicatorResponse(APIModel):
     id: int
     indicator_code: str
     indicator_name: str
     category: str | None = None
+    photo_perspective: str = "FRONT"
+    is_custom: bool = False
     description: str | None = None
     normal_condition: str | None = None
     abnormal_condition: str | None = None
@@ -23,6 +48,8 @@ class RoomIndicatorItem(APIModel):
     indicator_code: str
     indicator_name: str
     category: str | None = None
+    photo_perspective: str = "FRONT"
+    is_custom: bool = False
     enabled: bool = True
     sort_order: int = 0
 

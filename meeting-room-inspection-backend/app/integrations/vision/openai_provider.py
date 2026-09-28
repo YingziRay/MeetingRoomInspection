@@ -96,11 +96,18 @@ class OpenAIVisionProvider(VisionModelProvider):
             )
         indicators_text = "\n".join(indicators_desc)
 
+        perspective_map = {
+            "FRONT": "前视角 (正门入口 → 会议桌/幕布全景)",
+            "REAR": "后视角 (发言席 → 后排座椅/大门全景)",
+            "AC_PANEL": "空调开关界面 (墙面温控面板特写近拍)",
+        }
+        perspective_desc = perspective_map.get(photo_type, f"{photo_type}视角")
+
         prompt = f"""
 你是一名专业的企业级会议室智能巡检专家。
 请仔细对比提供的两张会议室图片：
 - 图 1 是【标准规范基准参考图】（代表符合规范的标准状态）
-- 图 2 是【现场实拍巡检照片】（巡检人员刚拍摄的实际现状，拍摄视角：{photo_type}）
+- 图 2 是【现场实拍巡检照片】（巡检人员刚拍摄的实际现状，拍摄视角：{perspective_desc}）
 
 请对以下 {len(indicators)} 个指定巡检指标进行逐项细致审核比对：
 {indicators_text}

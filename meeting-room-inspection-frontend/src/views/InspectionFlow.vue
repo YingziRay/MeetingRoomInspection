@@ -146,6 +146,63 @@
         </div>
       </div>
 
+      <!-- AC_PANEL Photo Card (if room configured AC standard photo) -->
+      <div v-if="hasAcPanelStandard" class="photo-capture-card">
+        <div class="card-head">
+          <span class="title">3. 空调开关界面 (墙面温控面板特写)</span>
+          <van-tag v-if="acPanelPhoto?.quality_status === 'PASS'" type="success">质检合格</van-tag>
+          <van-tag v-else-if="acPanelPhoto" type="danger">{{ acPanelPhoto.quality_status }}</van-tag>
+          <van-tag v-else type="default">待拍摄</van-tag>
+        </div>
+
+        <!-- Reference Overlay / Live Preview -->
+        <div class="photo-preview-box">
+          <img
+            v-if="acPanelPreviewUrl"
+            :src="acPanelPreviewUrl"
+            class="preview-img"
+            alt="空调面板实拍"
+          />
+          <div v-else class="placeholder-box">
+            <img
+              v-if="acPanelStandardUrl"
+              :src="acPanelStandardUrl"
+              class="standard-overlay"
+              alt="基准参考"
+            />
+            <div class="overlay-mask">
+              <van-icon name="photograph" size="40" />
+              <span>参考空调基准界面 (点击下方拍摄)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card-actions">
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            ref="acPanelInput"
+            class="hidden-file-input"
+            @change="handleFileUpload($event, 'AC_PANEL')"
+          />
+          <van-button
+            type="primary"
+            round
+            block
+            size="small"
+            :loading="uploadingAcPanel"
+            @click="triggerPhotoInput('AC_PANEL')"
+          >
+            {{ acPanelPhoto ? '重新拍摄空调面板' : '拍摄空调开关界面' }}
+          </van-button>
+        </div>
+
+        <div v-if="acPanelPhoto?.quality_reason" class="quality-reason-alert">
+          {{ acPanelPhoto.quality_reason }}
+        </div>
+      </div>
+
       <!-- Start AI Analysis Bar -->
       <div class="bottom-action-fixed">
         <van-button
@@ -157,7 +214,7 @@
           :loading="analyzing"
           @click="startAiAnalysis"
         >
-          {{ canStartAi ? '两张照片已就绪，开始AI智能识别' : '请先完成两张合规照片拍摄' }}
+          {{ canStartAi ? (hasAcPanelStandard ? '三张照片已就绪，开始AI智能识别' : '两张照片已就绪，开始AI智能识别') : (hasAcPanelStandard ? '请先完成三张合规照片拍摄' : '请先完成两张合规照片拍摄') }}
         </van-button>
       </div>
     </div>
@@ -291,32 +348,47 @@ const taskInfo = ref<InspectionTask | null>(null)
 const roomInfo = ref<MeetingRoom | null>(null)
 const frontPhoto = ref<InspectionPhoto | null>(null)
 const rearPhoto = ref<InspectionPhoto | null>(null)
+const acPanelPhoto = ref<InspectionPhoto | null>(null)
 const results = ref<InspectionResult[]>([])
 
 const uploadingFront = ref(false)
 const uploadingRear = ref(false)
+const uploadingAcPanel = ref(false)
 const analyzing = ref(false)
 const submitting = ref(false)
 const submitResult = ref<any>(null)
 
 const frontInput = ref<HTMLInputElement | null>(null)
 const rearInput = ref<HTMLInputElement | null>(null)
+const acPanelInput = ref<HTMLInputElement | null>(null)
 
 const frontPreviewUrl = computed(() => frontPhoto.value?.photo_url)
 const rearPreviewUrl = computed(() => rearPhoto.value?.photo_url)
+const acPanelPreviewUrl = computed(() => acPanelPhoto.value?.photo_url)
+
+const standardPhotos = ref<any[]>([])
+const hasAcPanelStandard = computed(() => {
+  return standardPhotos.value.some((item) => item.photo_type === 'AC_PANEL')
+})
+const acPanelStandardUrl = computed(() => {
+  const p = standardPhotos.value.find((item) => item.photo_type === 'AC_PANEL')
+  return p ? p.photo_url : ''
+})
 
 const canStartAi = computed(() => {
-  return (
-    frontPhoto.value?.quality_status === 'PASS' &&
-    rearPhoto.value?.quality_status === 'PASS'
-  )
+  const frontPass = frontPhoto.value?.quality_status === 'PASS'
+  const rearPass = rearPhoto.value?.quality_status === 'PASS'
+  if (!frontPass || !rearPass) return false
+  if (hasAcPanelStandard.value) {
+    return acPanelPhoto.value?.quality_status === 'PASS'
+  }
+  return true
 })
 
 const abnormalCount = computed(() => {
   return results.value.filter((r) => r.final_status === 'ABNORMAL').length
 })
 
-const standardPhotos = ref<any[]>([])
 const frontStandardUrl = computed(() => {
   const p = standardPhotos.value.find((item) => item.photo_type === 'FRONT')
   return p ? p.photo_url : '/uploads/standards/RM301_FRONT.JPG'
@@ -364,6 +436,7 @@ const loadTaskState = async () => {
 
     frontPhoto.value = pRes.data.find((p) => p.photo_type === 'FRONT') || null
     rearPhoto.value = pRes.data.find((p) => p.photo_type === 'REAR') || null
+    acPanelPhoto.value = pRes.data.find((p) => p.photo_type === 'AC_PANEL') || null
 
     // Determine current step based on task status
     if (taskInfo.value.status === 'COMPLETED') {
@@ -389,21 +462,24 @@ const loadResults = async () => {
   }))
 }
 
-const triggerPhotoInput = (type: 'FRONT' | 'REAR') => {
+const triggerPhotoInput = (type: 'FRONT' | 'REAR' | 'AC_PANEL') => {
   if (type === 'FRONT') {
     frontInput.value?.click()
-  } else {
+  } else if (type === 'REAR') {
     rearInput.value?.click()
+  } else {
+    acPanelInput.value?.click()
   }
 }
 
-const handleFileUpload = async (event: Event, type: 'FRONT' | 'REAR') => {
+const handleFileUpload = async (event: Event, type: 'FRONT' | 'REAR' | 'AC_PANEL') => {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]
   if (!file) return
 
   if (type === 'FRONT') uploadingFront.value = true
-  else uploadingRear.value = true
+  else if (type === 'REAR') uploadingRear.value = true
+  else uploadingAcPanel.value = true
 
   try {
     const res = await photoApi.upload(taskId, type, file)
@@ -411,8 +487,10 @@ const handleFileUpload = async (event: Event, type: 'FRONT' | 'REAR') => {
 
     if (type === 'FRONT') {
       frontPhoto.value = uploaded as any
-    } else {
+    } else if (type === 'REAR') {
       rearPhoto.value = uploaded as any
+    } else {
+      acPanelPhoto.value = uploaded as any
     }
 
     if (!uploaded.quality_passed) {
@@ -428,7 +506,8 @@ const handleFileUpload = async (event: Event, type: 'FRONT' | 'REAR') => {
     showToast('上传失败: ' + (err.message || '网络异常'))
   } finally {
     if (type === 'FRONT') uploadingFront.value = false
-    else uploadingRear.value = false
+    else if (type === 'REAR') uploadingRear.value = false
+    else uploadingAcPanel.value = false
     target.value = ''
   }
 }

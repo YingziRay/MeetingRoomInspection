@@ -25,7 +25,7 @@ export interface InspectionTask {
 export interface InspectionPhoto {
   id: number
   task_id: number
-  photo_type: 'FRONT' | 'REAR'
+  photo_type: 'FRONT' | 'REAR' | 'AC_PANEL' | string
   photo_url: string
   original_filename?: string
   width?: number
@@ -73,6 +73,8 @@ export interface InspectionIndicator {
   description?: string
   normal_condition?: string
   abnormal_condition?: string
+  photo_perspective?: 'FRONT' | 'REAR' | 'AC_PANEL' | string
+  is_custom?: boolean
   ai_supported: boolean
   enabled: boolean
   sort_order: number
@@ -92,7 +94,7 @@ export interface RoomIndicatorItem {
 export interface StandardPhoto {
   id: number
   room_id: number
-  photo_type: 'FRONT' | 'REAR' | string
+  photo_type: 'FRONT' | 'REAR' | 'AC_PANEL' | string
   photo_url: string
   shoot_position?: string
   camera_direction?: string

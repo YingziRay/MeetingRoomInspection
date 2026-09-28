@@ -34,6 +34,7 @@ class TaskSummaryItem(APIModel):
     abnormal_summary: list[AbnormalItemSummary] = []
     front_photo_url: str | None = None
     rear_photo_url: str | None = None
+    ac_panel_photo_url: str | None = None
 
 
 class IndicatorStatItem(APIModel):

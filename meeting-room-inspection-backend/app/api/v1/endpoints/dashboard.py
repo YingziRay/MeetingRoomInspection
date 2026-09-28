@@ -297,6 +297,7 @@ def list_inspection_tasks_ledger(
                 abnormal_summary=abn_summary,
                 front_photo_url=photos_map.get("FRONT"),
                 rear_photo_url=photos_map.get("REAR"),
+                ac_panel_photo_url=photos_map.get("AC_PANEL"),
             )
         )
 

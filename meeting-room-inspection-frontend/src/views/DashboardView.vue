@@ -461,7 +461,7 @@
               >
                 <img :src="photo.photo_url" class="photo-card-img" alt="现场照片" />
                 <div class="photo-info-bar">
-                  <span class="p-type">{{ photo.photo_type === 'FRONT' ? '前视角 (主讲台)' : '后视角 (入户门)' }}</span>
+                  <span class="p-type">{{ photo.photo_type === 'FRONT' ? '前视角 (主讲台)' : (photo.photo_type === 'AC_PANEL' ? '空调开关界面' : '后视角 (入户门)') }}</span>
                   <van-tag type="success">质检合格</van-tag>
                 </div>
               </div>

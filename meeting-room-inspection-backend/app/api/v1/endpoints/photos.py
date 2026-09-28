@@ -15,14 +15,14 @@ router = APIRouter()
 @router.post("/upload", response_model=PhotoUploadResponse)
 async def upload_inspection_photo(
     task_id: int = Form(...),
-    photo_type: str = Form(..., description="FRONT or REAR"),
+    photo_type: str = Form(..., description="FRONT, REAR or AC_PANEL"),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    if photo_type not in ("FRONT", "REAR"):
+    if photo_type not in ("FRONT", "REAR", "AC_PANEL"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="PHOTO_TYPE_INVALID: must be 'FRONT' or 'REAR'",
+            detail="PHOTO_TYPE_INVALID: must be 'FRONT', 'REAR', or 'AC_PANEL'",
         )
 
     # Validate task
