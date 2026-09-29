@@ -9,7 +9,7 @@ from app.models.inspection_task import InspectionTask
 from app.models.meeting_room import MeetingRoom
 from app.services.notification_service import get_notification_service
 
-scheduler = AsyncIOScheduler()
+scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
 
 
 def generate_and_notify_period(period_code: str):
@@ -18,7 +18,8 @@ def generate_and_notify_period(period_code: str):
     """
     db = SessionLocal()
     try:
-        today = date.today()
+        from zoneinfo import ZoneInfo
+        today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
         period_cfg = db.scalar(
             select(InspectionPeriodConfig).where(
                 InspectionPeriodConfig.period_code == period_code

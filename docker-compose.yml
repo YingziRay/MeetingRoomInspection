@@ -7,6 +7,7 @@ services:
       POSTGRES_DB: meeting_inspection
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+      TZ: Asia/Shanghai
     ports:
       - "5432:5432"
     volumes:
@@ -27,6 +28,7 @@ services:
       - ./meeting-room-inspection-backend/.env
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/meeting_inspection
+      TZ: Asia/Shanghai
     ports:
       - "8000:8000"
     volumes:
@@ -41,6 +43,8 @@ services:
       dockerfile: Dockerfile
     container_name: meeting-inspection-frontend
     restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
     ports:
       - "5173:80"
     depends_on:
