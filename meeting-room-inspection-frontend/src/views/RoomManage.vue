@@ -176,8 +176,13 @@
               <van-tag :type="ind.category === 'DEVICE' ? 'primary' : 'warning'" plain>
                 {{ ind.category === 'DEVICE' ? '设备设施' : '环境卫生' }}
               </van-tag>
-              <van-tag type="default" plain>
-                {{ ind.photo_perspective === 'REAR' ? '后视角核验' : (ind.photo_perspective === 'AC_PANEL' ? '空调面板核验' : '前视角核验') }}
+              <van-tag
+                v-for="pTag in getPerspectiveTags(ind.photo_perspective)"
+                :key="pTag"
+                type="default"
+                plain
+              >
+                {{ pTag }}核验
               </van-tag>
               <van-tag v-if="!ind.is_custom" color="#7232dd" plain>
                 <van-icon name="lock" /> 默认标准
@@ -187,11 +192,9 @@
               </van-tag>
             </div>
             <div class="ind-right-actions">
-              <template v-if="ind.is_custom">
-                <van-button size="mini" plain icon="edit" @click="openEditIndicatorModal(ind)">编辑</van-button>
-                <van-button size="mini" plain type="danger" icon="delete-o" @click="handleDeleteIndicator(ind)">删除</van-button>
-              </template>
-              <span v-else class="system-locked-text">基准保留</span>
+              <van-button size="mini" plain icon="edit" @click="openEditIndicatorModal(ind)">编辑</van-button>
+              <van-button v-if="ind.is_custom" size="mini" plain type="danger" icon="delete-o" @click="handleDeleteIndicator(ind)">删除</van-button>
+              <span v-else class="system-locked-text">默认保护</span>
             </div>
           </div>
 
@@ -259,10 +262,10 @@
       </div>
     </van-dialog>
 
-    <!-- Dialog 2: Add / Edit Custom Indicator -->
+    <!-- Dialog 2: Add / Edit Indicator -->
     <van-dialog
       v-model:show="showIndicatorFormDialog"
-      :title="isEditingIndicator ? '编辑自定义指标' : '新增自定义巡检指标'"
+      :title="isEditingIndicator ? (indicatorForm.is_custom ? '编辑自定义指标' : '编辑指标规范 (默认标准)') : '新增巡检指标'"
       show-cancel-button
       :confirm-button-text="isEditingIndicator ? '保存更新' : '立即创建'"
       :before-close="handleSaveIndicatorForm"
@@ -274,6 +277,7 @@
             label="指标名称"
             placeholder="例: 绿植盆栽 / 垃圾桶 / 门锁闭合"
             required
+            :disabled="isEditingIndicator && !indicatorForm.is_custom"
           />
           <van-cell center title="指标分类">
             <template #right-icon>
@@ -283,13 +287,20 @@
               </select>
             </template>
           </van-cell>
-          <van-cell center title="拍照核验机位">
-            <template #right-icon>
-              <select v-model="indicatorForm.photo_perspective" class="inline-select">
-                <option value="FRONT">前视角 (主讲台/幕布)</option>
-                <option value="REAR">后视角 (入户门/后墙)</option>
-                <option value="AC_PANEL">空调开关界面 (墙面面板特写)</option>
-              </select>
+          <van-cell title="拍照核验机位 (可多选)" required>
+            <template #label>
+              <div class="perspective-select-group">
+                <div
+                  v-for="opt in perspectiveOptions"
+                  :key="opt.value"
+                  class="perspective-chip"
+                  :class="{ active: selectedPerspectives.includes(opt.value) }"
+                  @click="togglePerspective(opt.value)"
+                >
+                  <van-icon :name="selectedPerspectives.includes(opt.value) ? 'checked' : 'circle'" />
+                  <span>{{ opt.label }}</span>
+                </div>
+              </div>
             </template>
           </van-cell>
           <van-field
@@ -513,6 +524,40 @@ const roomForm = ref<Partial<MeetingRoom>>({
 // Indicator Form Modal
 const showIndicatorFormDialog = ref(false)
 const isEditingIndicator = ref(false)
+const perspectiveOptions = [
+  { value: 'FRONT', label: '前视角 (主讲台/幕布)' },
+  { value: 'REAR', label: '后视角 (入户门/后墙)' },
+  { value: 'AC_PANEL', label: '空调开关界面 (墙面面板特写)' },
+]
+const selectedPerspectives = ref<string[]>(['FRONT'])
+
+const togglePerspective = (val: string) => {
+  const idx = selectedPerspectives.value.indexOf(val)
+  if (idx > -1) {
+    if (selectedPerspectives.value.length === 1) {
+      showToast('至少需要保留一个核验机位')
+      return
+    }
+    selectedPerspectives.value.splice(idx, 1)
+  } else {
+    selectedPerspectives.value.push(val)
+  }
+}
+
+const getPerspectiveTags = (perspectivesStr?: string) => {
+  if (!perspectivesStr) return ['前视角']
+  const map: Record<string, string> = {
+    FRONT: '前视角',
+    REAR: '后视角',
+    AC_PANEL: '空调开关界面',
+  }
+  return perspectivesStr
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => map[p] || p)
+}
+
 const indicatorForm = ref<Partial<InspectionIndicator>>({
   indicator_name: '',
   category: 'ENVIRONMENT',
@@ -671,6 +716,7 @@ const confirmDeleteRoom = (room: MeetingRoom) => {
 
 const openAddIndicatorModal = () => {
   isEditingIndicator.value = false
+  selectedPerspectives.value = ['FRONT']
   indicatorForm.value = {
     indicator_name: '',
     category: 'ENVIRONMENT',
@@ -684,6 +730,11 @@ const openAddIndicatorModal = () => {
 
 const openEditIndicatorModal = (ind: InspectionIndicator) => {
   isEditingIndicator.value = true
+  const rawP = ind.photo_perspective || 'FRONT'
+  selectedPerspectives.value = rawP.split(',').map((p) => p.trim()).filter(Boolean)
+  if (!selectedPerspectives.value.length) {
+    selectedPerspectives.value = ['FRONT']
+  }
   indicatorForm.value = { ...ind }
   showIndicatorFormDialog.value = true
 }
@@ -694,14 +745,19 @@ const handleSaveIndicatorForm = async (action: string) => {
     showToast('请输入指标名称')
     return false
   }
+  if (!selectedPerspectives.value.length) {
+    showToast('请至少选择一个拍照核验机位')
+    return false
+  }
+  indicatorForm.value.photo_perspective = selectedPerspectives.value.join(',')
 
   try {
     if (isEditingIndicator.value && indicatorForm.value.id) {
       await indicatorApi.update(indicatorForm.value.id, indicatorForm.value)
-      showSuccessToast('指标已更新')
+      showSuccessToast('指标规范已更新')
     } else {
       await indicatorApi.create(indicatorForm.value)
-      showSuccessToast('新增自定义指标成功！')
+      showSuccessToast('新增指标成功！')
     }
     await loadData()
     return true
@@ -1189,5 +1245,33 @@ const handleUploadStandard = async (photoType: 'FRONT' | 'REAR' | 'AC_PANEL', fi
   display: flex;
   justify-content: center;
   margin-top: 10px;
+}
+
+.perspective-select-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.perspective-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #f7f8fa;
+  border: 1px solid #ebedf0;
+  font-size: 13px;
+  color: #646566;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.perspective-chip.active {
+  background: #e8f4ff;
+  border-color: #1989fa;
+  color: #1989fa;
+  font-weight: 500;
 }
 </style>

@@ -65,7 +65,7 @@ class AIInspectionService:
 
             region = db.get(PhotoRegion, ri.region_id) if ri.region_id else None
             region_dict = None
-            photo_type = "FRONT"  # Default fallback
+            perspectives_list = []
             if region:
                 region_dict = {
                     "code": region.region_code,
@@ -77,17 +77,15 @@ class AIInspectionService:
                 }
                 # Find which photo_type this region belongs to
                 std_photo = db.get(StandardPhoto, region.standard_photo_id)
-                if std_photo:
-                    photo_type = std_photo.photo_type
-            else:
-                # Default categorisation by custom photo_perspective or built-in indicator code
-                photo_type = getattr(indicator, "photo_perspective", "FRONT") or "FRONT"
-                if indicator.indicator_code == "I002":
-                    # 若现场或标准图中有 AC_PANEL，优先使用空调开关面板视角核验；否则降级为 REAR
-                    has_ac_panel = "AC_PANEL" in std_photo_map or any(lp.photo_type == "AC_PANEL" for lp in live_photos)
-                    photo_type = "AC_PANEL" if has_ac_panel else "REAR"
-                elif indicator.indicator_code == "I003":
-                    photo_type = "REAR"
+                if std_photo and std_photo.photo_type:
+                    perspectives_list = [std_photo.photo_type]
+
+            if not perspectives_list:
+                raw_perspectives = getattr(indicator, "photo_perspective", "FRONT") or "FRONT"
+                perspectives_list = [p.strip() for p in raw_perspectives.split(",") if p.strip()]
+                # 若现场未拍 AC_PANEL 且指标仅有 AC_PANEL，允许平滑降级到 REAR 兜底
+                if "AC_PANEL" in perspectives_list and not any(lp.photo_type == "AC_PANEL" for lp in live_photos):
+                    perspectives_list.append("REAR")
 
             all_indicators_info.append(
                 {
@@ -98,20 +96,20 @@ class AIInspectionService:
                     "normal_condition": indicator.normal_condition,
                     "abnormal_condition": indicator.abnormal_condition,
                     "region": region_dict,
-                    "photo_type": photo_type,
+                    "perspectives": perspectives_list,
                 }
             )
 
-        # 5. Process each perspective (FRONT, REAR)
+        # 5. Process each perspective (FRONT, REAR, AC_PANEL)
         saved_results: list[InspectionResult] = []
 
         for live_photo in live_photos:
             p_type = live_photo.photo_type
             std_photo = std_photo_map.get(p_type)
 
-            # Gather indicators for this perspective
+            # Gather indicators matching this perspective
             perspective_indicators = [
-                item for item in all_indicators_info if item["photo_type"] == p_type
+                item for item in all_indicators_info if p_type in item["perspectives"]
             ]
 
             if not perspective_indicators:
@@ -156,7 +154,10 @@ class AIInspectionService:
                 ai_reason = r_data.reason if r_data else "未识别到该项结果"
                 ai_bbox = r_data.bbox if r_data else None
 
-                # Upsert inspection_result
+                p_label = {"FRONT": "前视角", "REAR": "后视角", "AC_PANEL": "空调面板"}.get(p_type, p_type)
+                current_reason_item = f"[{p_label}] {ai_reason}" if len(ind_item["perspectives"]) > 1 else ai_reason
+
+                # Upsert inspection_result with multi-perspective aggregation
                 existing_res = db.scalar(
                     select(InspectionResult).where(
                         InspectionResult.task_id == task_id,
@@ -170,19 +171,32 @@ class AIInspectionService:
                         indicator_id=ind_id,
                         ai_status=ai_status,
                         ai_confidence=ai_confidence,
-                        ai_reason=ai_reason,
+                        ai_reason=current_reason_item,
                         ai_bbox=ai_bbox,
                         final_status=ai_status,
                     )
                     db.add(res_record)
                     saved_results.append(res_record)
                 else:
-                    existing_res.ai_status = ai_status
-                    existing_res.ai_confidence = ai_confidence
-                    existing_res.ai_reason = ai_reason
-                    existing_res.ai_bbox = ai_bbox
-                    existing_res.final_status = ai_status
-                    saved_results.append(existing_res)
+                    # 综合多机位判定逻辑：异常优先（一票否决制）
+                    if ai_status == "ABNORMAL":
+                        existing_res.ai_status = "ABNORMAL"
+                        existing_res.final_status = "ABNORMAL"
+                        existing_res.ai_confidence = max(existing_res.ai_confidence or Decimal("0"), ai_confidence)
+                        existing_res.ai_reason = f"{existing_res.ai_reason}; {current_reason_item}" if existing_res.ai_reason else current_reason_item
+                        if ai_bbox:
+                            existing_res.ai_bbox = ai_bbox
+                    elif existing_res.ai_status == "ABNORMAL":
+                        existing_res.ai_reason = f"{existing_res.ai_reason}; {current_reason_item}"
+                    else:
+                        if ai_status == "NORMAL":
+                            existing_res.ai_status = "NORMAL"
+                            existing_res.final_status = "NORMAL"
+                            existing_res.ai_confidence = max(existing_res.ai_confidence or Decimal("0"), ai_confidence)
+                        existing_res.ai_reason = f"{existing_res.ai_reason}; {current_reason_item}" if existing_res.ai_reason else current_reason_item
+
+                    if existing_res not in saved_results:
+                        saved_results.append(existing_res)
 
         # 6. Progress task status to WAITING_CONFIRM
         task.status = "WAITING_CONFIRM"

@@ -104,24 +104,122 @@
 
 ## 3. 方案 B：cpolar 内网穿透（国内网络首选方案）
 
-若由于地域原因访问 Cloudflare 节点延迟较高，可选用国内主流的 cpolar 穿透工具（机房位于国内腾讯云/阿里云，网络极稳）。
+若由于地域原因访问 Cloudflare 节点延迟较高或存在丢包，建议使用国内主流的 cpolar 穿透工具（机房位于国内腾讯云/阿里云 BGP 机房，延迟 20ms 左右，网络极稳）。
 
-### 操作步骤
-1. **安装 cpolar**：
+### 3.1 跨平台安装与认证
+
+* **macOS 环境**：
+  ```bash
+  brew install cpolar/cpolar/cpolar
+  ```
+* **Linux (Ubuntu / Debian / CentOS) 环境**：
+  ```bash
+  curl -L https://www.cpolar.com/static/downloads/install-release-cpolar.sh | sudo bash
+  ```
+* **绑定用户 Token（首次需要）**：
+  前往 [cpolar 官网](https://www.cpolar.com/) 注册并获取 Authtoken：
+  ```bash
+  cpolar authtoken <your-auth-token>
+  ```
+
+---
+
+### 3.2 运行模式
+
+#### 模式 1：前台临时调试（终端关闭即失效）
+```bash
+cpolar http 5173
+```
+*控制台会实时打印公网 HTTPS 域名，按 `Ctrl + C` 退出。*
+
+#### 模式 2：后台常驻系统服务（Linux 生产首选，开机自启 / SSH 退出不中断）
+```bash
+sudo systemctl enable cpolar
+sudo systemctl start cpolar
+sudo systemctl status cpolar
+```
+
+---
+
+### 3.3 关键避坑与配置要点（Troubleshooting）
+
+#### 坑点 1：默认端口是 8080 而不是本系统的 5173
+* **现象**：通过 systemctl 启动后，生成的公网链接打不开页面。
+* **原因**：cpolar 安装后，默认配置文件中自带了一个名为 `website` 的示例隧道，默认监听本地 `8080` 端口。
+* **一键解决（修改配置文件并重启）**：
+  ```bash
+  # 1. 一键将配置文件中的 8080 端口替换为前端的 5173 端口
+  sudo sed -i 's/8080/5173/g' /usr/local/etc/cpolar/cpolar.yml
+
+  # 2. 重启 cpolar 服务生效
+  sudo systemctl restart cpolar
+  ```
+  *(注：也可以访问本地 Web 界面 `http://<服务器IP>:9200`，在「隧道管理」->「隧道列表」中编辑 `website` 隧道，将本地地址改为 `5173` 并保存)*
+
+#### 坑点 2：systemd 后台模式下，在哪里查看生成的 FRONTEND_URL？
+在无终端界面的后台服务模式下，可通过以下 **3 种方式** 获取公网地址：
+
+1. **本地 9200 Web 控制台（最直观）**：
+   浏览器访问 `http://<服务器IP>:9200`（本机为 `http://localhost:9200`），登录后点击左侧 **「状态」 -> 「在线隧道列表」**，复制对应的公网 HTTPS 地址。
+2. **命令行一键提取（最快速）**：
+   在终端执行以下命令直接输出当前公网 URL：
    ```bash
-   brew install cpolar/cpolar/cpolar
+   curl -s http://127.0.0.1:9200/api/v1/tunnels | grep -oE 'https://[a-zA-Z0-9.-]+\.cpolar\.(top|cn)' | head -n 1
    ```
-2. **注册登录并启动穿透**：
-   前往 [cpolar 官网](https://www.cpolar.com/) 注册账号并获取 Authtoken：
-   ```bash
-   cpolar authtoken <your-auth-token>
-   cpolar http 5173
-   ```
-3. **更新配置与重启**：
-   复制终端输出的公网地址（形如 `https://xxxxxx.cpolar.top`），修改 `meeting-room-inspection-backend/.env` 中的 `FRONTEND_URL`，并重启后端：
-   ```bash
-   docker compose up -d backend
-   ```
+3. **cpolar 官网仪表盘远程查看**：
+   登录 [cpolar 官网在线状态页](https://dashboard.cpolar.com/status)，远程查看已上线的节点公网地址。
+
+---
+
+### 3.4 配置同步与热重载
+
+获取到公网 URL（例如 `https://xxxxxx.cpolar.top`）后，更新后端配置：
+```bash
+# 1. 写入后端配置
+sed -i 's|^FRONTEND_URL=.*|FRONTEND_URL=https://xxxxxx.cpolar.top|' meeting-room-inspection-backend/.env
+
+# 2. 重载后端服务生效
+docker compose up -d backend
+```
+
+---
+
+### 3.5 方案 B 的安全停用与合规清理
+
+在公司内网运行穿透服务时，测试完成后务必及时切断外网通道，杜绝内网暴露风险。根据实际安全要求选择以下处理级别：
+
+#### 级别 1：标准停用（保留环境，关闭隧道并禁止自启）
+切断公网连接，但保留二进制与配置，后续需要时随时可再次启动：
+```bash
+# 1. 立即停止穿透服务（公网域名瞬间失效，外部再无法访问）
+sudo systemctl stop cpolar
+
+# 2. 禁用开机自启（防止服务器重启后自动拉起公网隧道）
+sudo systemctl disable cpolar
+
+# 3. 确认服务状态 (应显示 inactive / dead)
+sudo systemctl status cpolar
+```
+
+#### 级别 2：回滚后端配置为内网局域网 IP
+避免钉钉后续推送的消息继续携带失效的公网域名：
+```bash
+# 1. 还原 FRONTEND_URL 为公司内网 IP
+sed -i 's|^FRONTEND_URL=.*|FRONTEND_URL=http://192.168.31.17:5173|' meeting-room-inspection-backend/.env
+
+# 2. 重载后端生效
+docker compose up -d backend
+```
+
+#### 级别 3：彻底清除下线（最安全・企业合规审计推荐）
+测试周期结束后彻底抹除 cpolar 软件本体、授权 Token 与 systemd 注册项，杜绝合规扫描告警：
+```bash
+# 一键彻底卸载（停止服务 -> 禁用自启 -> 移除可执行文件与配置 -> 移除服务定义 -> 重载 systemd）
+sudo systemctl stop cpolar
+sudo systemctl disable cpolar
+sudo rm -rf /usr/local/bin/cpolar /usr/local/etc/cpolar ~/.cpolar /etc/systemd/system/cpolar.service
+sudo systemctl daemon-reload
+```
 
 ---
 

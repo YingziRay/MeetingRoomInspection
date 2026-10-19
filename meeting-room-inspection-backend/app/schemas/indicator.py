@@ -7,7 +7,7 @@ class IndicatorCreate(APIModel):
     indicator_name: str = Field(..., min_length=1, max_length=100)
     indicator_code: str | None = Field(default=None, max_length=50)
     category: str = Field(default="ENVIRONMENT", max_length=50)
-    photo_perspective: str = Field(default="FRONT", max_length=20)
+    photo_perspective: str = Field(default="FRONT", max_length=100)
     description: str | None = None
     normal_condition: str | None = None
     abnormal_condition: str | None = None
