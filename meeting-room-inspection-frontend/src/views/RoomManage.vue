@@ -1,7 +1,13 @@
 <template>
   <div class="room-manage-page">
     <van-nav-bar
-      :title="activeMainTab === 'rooms' ? '会议室档案管理' : '巡检指标库维护'"
+      :title="
+        activeMainTab === 'rooms'
+          ? '会议室档案管理'
+          : activeMainTab === 'indicators'
+          ? '巡检指标库维护'
+          : '巡检时段与提醒维护'
+      "
       left-text="返回"
       left-arrow
       fixed
@@ -20,7 +26,7 @@
           添加会议室
         </van-button>
         <van-button
-          v-else
+          v-else-if="activeMainTab === 'indicators'"
           type="primary"
           size="small"
           round
@@ -36,6 +42,7 @@
     <van-tabs v-model:active="activeMainTab" color="#1989fa" line-width="40px" sticky>
       <van-tab :title="`会议室档案 (${rooms.length})`" name="rooms" />
       <van-tab :title="`巡检指标库 (${systemIndicators.length})`" name="indicators" />
+      <van-tab title="巡检时段与提醒" name="periods" />
     </van-tabs>
 
     <!-- ================= TAB 1: ROOMS ================= -->
@@ -122,7 +129,7 @@
     </div>
 
     <!-- ================= TAB 2: INDICATORS MANAGEMENT ================= -->
-    <div v-else class="tab-content-wrap">
+    <div v-else-if="activeMainTab === 'indicators'" class="tab-content-wrap">
       <!-- Tip Bar -->
       <van-notice-bar
         left-icon="info-o"
@@ -207,6 +214,110 @@
               <span class="c-tag red">❌ 异常：</span>
               <span class="c-desc">{{ ind.abnormal_condition || '存在违规或未按要求整理' }}</span>
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= TAB 3: PERIODS ================= -->
+    <div v-else-if="activeMainTab === 'periods'" class="tab-content-wrap">
+      <!-- Info Banner -->
+      <div class="period-info-banner">
+        <van-icon name="clock-o" size="20" color="#1989fa" />
+        <div class="banner-text">
+          <span class="banner-title">巡检时刻表与钉钉提醒自主维护</span>
+          <span class="banner-desc">
+            每日到达【启动时刻】时，系统自动生成当日各会议室巡检任务，并向钉钉群推送巡检提醒。修改保存后即刻热更新生效，无需重启服务。
+          </span>
+        </div>
+      </div>
+
+      <!-- Period List -->
+      <div class="period-list-container">
+        <div
+          v-for="period in periodList"
+          :key="period.period_code"
+          class="period-card"
+        >
+          <div class="card-header">
+            <div class="title-wrap">
+              <span class="period-icon">{{ getPeriodEmoji(period.period_code) }}</span>
+              <span class="room-title">{{ period.period_name }}</span>
+              <van-tag type="primary" plain class="code-tag">{{ period.period_code }}</van-tag>
+            </div>
+            <van-tag :type="periodForms[period.period_code]?.enabled ? 'success' : 'default'">
+              {{ periodForms[period.period_code]?.enabled ? '时段运行中' : '时段已暂停' }}
+            </van-tag>
+          </div>
+
+          <div v-if="periodForms[period.period_code]" class="period-form-body">
+            <van-cell-group inset>
+              <van-field
+                v-model="periodForms[period.period_code].period_name"
+                label="时段名称"
+                placeholder="如 上午巡检"
+                required
+              />
+
+              <van-field
+                v-model="periodForms[period.period_code].start_time"
+                label="启动/提醒时刻"
+                placeholder="09:00"
+                type="time"
+                required
+              >
+                <template #extra>
+                  <span class="time-tip">自动生成并推送</span>
+                </template>
+              </van-field>
+
+              <van-field
+                v-model="periodForms[period.period_code].deadline_time"
+                label="巡检截止时刻"
+                placeholder="10:30"
+                type="time"
+                required
+              >
+                <template #extra>
+                  <span class="time-tip">巡检截止时间</span>
+                </template>
+              </van-field>
+
+              <van-cell center title="开启该时段每日巡检">
+                <template #right-icon>
+                  <van-switch v-model="periodForms[period.period_code].enabled" size="20" />
+                </template>
+              </van-cell>
+
+              <van-cell center title="开启钉钉群提醒推送" label="在启动时刻自动向钉钉群推送本时段巡检卡片">
+                <template #right-icon>
+                  <van-switch v-model="periodForms[period.period_code].reminder_enabled" size="20" />
+                </template>
+              </van-cell>
+            </van-cell-group>
+          </div>
+
+          <div class="period-card-actions">
+            <van-button
+              size="small"
+              type="primary"
+              round
+              icon="passed"
+              :loading="savingPeriodCode === period.period_code"
+              @click="handleSavePeriod(period.period_code)"
+            >
+              保存时刻配置
+            </van-button>
+            <van-button
+              size="small"
+              plain
+              round
+              icon="play-circle-o"
+              :loading="triggeringPeriodCode === period.period_code"
+              @click="handleTriggerTest(period)"
+            >
+              立即测试触发一次
+            </van-button>
           </div>
         </div>
       </div>
@@ -473,13 +584,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { showToast, showSuccessToast, showDialog } from 'vant'
-import { roomApi, indicatorApi } from '../api'
+import { showToast, showSuccessToast, showDialog, showConfirmDialog } from 'vant'
+import { roomApi, indicatorApi, periodApi } from '../api'
 import type {
   MeetingRoom,
   InspectionIndicator,
   RoomIndicatorItem,
   StandardPhoto,
+  InspectionPeriodConfig,
 } from '../types'
 
 const router = useRouter()
@@ -487,6 +599,21 @@ const activeMainTab = ref('rooms')
 
 const rooms = ref<MeetingRoom[]>([])
 const systemIndicators = ref<InspectionIndicator[]>([])
+const periodList = ref<InspectionPeriodConfig[]>([])
+const periodForms = ref<
+  Record<
+    string,
+    {
+      period_name: string
+      start_time: string
+      deadline_time: string
+      enabled: boolean
+      reminder_enabled: boolean
+    }
+  >
+>({})
+const savingPeriodCode = ref<string | null>(null)
+const triggeringPeriodCode = ref<string | null>(null)
 const roomIndicatorsMap = ref<Record<number, RoomIndicatorItem[]>>({})
 const roomPhotosMap = ref<Record<number, StandardPhoto[]>>({})
 const refreshing = ref(false)
@@ -590,11 +717,111 @@ const goBack = () => {
   router.push('/')
 }
 
+const getPeriodEmoji = (code: string) => {
+  switch (code) {
+    case 'MORNING':
+      return '🌅'
+    case 'NOON':
+      return '☀️'
+    case 'EVENING':
+      return '🌙'
+    default:
+      return '⏰'
+  }
+}
+
+const loadPeriods = async () => {
+  try {
+    const res = await periodApi.list()
+    periodList.value = res.data || []
+    for (const p of periodList.value) {
+      // Format "09:00:00" to "09:00"
+      const formatTime = (t: string) => (t && t.length >= 5 ? t.substring(0, 5) : t)
+      periodForms.value[p.period_code] = {
+        period_name: p.period_name,
+        start_time: formatTime(p.start_time),
+        deadline_time: formatTime(p.deadline_time),
+        enabled: p.enabled,
+        reminder_enabled: p.reminder_enabled,
+      }
+    }
+  } catch (e: any) {
+    console.error('加载巡检时段配置失败:', e)
+  }
+}
+
+const handleSavePeriod = async (periodCode: string) => {
+  const form = periodForms.value[periodCode]
+  if (!form) return
+
+  if (!form.start_time || !form.deadline_time) {
+    showToast('启动时刻与截止时刻均不能为空')
+    return
+  }
+
+  // Format validation HH:MM
+  const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/
+  if (!timeRegex.test(form.start_time)) {
+    showToast('启动时刻格式不正确 (例: 09:00)')
+    return
+  }
+  if (!timeRegex.test(form.deadline_time)) {
+    showToast('截止时刻格式不正确 (例: 10:30)')
+    return
+  }
+
+  if (form.start_time >= form.deadline_time) {
+    showToast('巡检启动与提醒时间必须早于截止时间')
+    return
+  }
+
+  savingPeriodCode.value = periodCode
+  try {
+    await periodApi.update(periodCode, {
+      period_name: form.period_name,
+      start_time: form.start_time,
+      deadline_time: form.deadline_time,
+      enabled: form.enabled,
+      reminder_enabled: form.reminder_enabled,
+    })
+    showSuccessToast(`【${form.period_name}】时刻配置已更新并即刻生效！`)
+    await loadPeriods()
+  } catch (e: any) {
+    showToast('保存失败: ' + (e.response?.data?.detail || e.message))
+  } finally {
+    savingPeriodCode.value = null
+  }
+}
+
+const handleTriggerTest = async (period: InspectionPeriodConfig) => {
+  try {
+    await showConfirmDialog({
+      title: '手动触发测试',
+      message: `确认立即为今日【${period.period_name}】生成巡检任务并向钉钉群推送通知？`,
+      confirmButtonText: '立即触发',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+
+  triggeringPeriodCode.value = period.period_code
+  try {
+    const res = await periodApi.triggerTest(period.period_code)
+    showSuccessToast(res.data.message || '测试触发成功！')
+  } catch (e: any) {
+    showToast('触发失败: ' + (e.response?.data?.detail || e.message))
+  } finally {
+    triggeringPeriodCode.value = null
+  }
+}
+
 const loadData = async () => {
   try {
     const [roomsRes, indicatorsRes] = await Promise.all([
       roomApi.list({}),
       indicatorApi.list({}),
+      loadPeriods(),
     ])
     rooms.value = roomsRes.data.items || []
     systemIndicators.value = indicatorsRes.data || []
@@ -1273,5 +1500,68 @@ const handleUploadStandard = async (photoType: 'FRONT' | 'REAR' | 'AC_PANEL', fi
   border-color: #1989fa;
   color: #1989fa;
   font-weight: 500;
+}
+
+/* Periods Maintenance Styles */
+.period-info-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: #f0f7ff;
+  border: 1px solid #d0e7ff;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin: 12px 12px 16px;
+}
+
+.banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.banner-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1989fa;
+}
+
+.banner-desc {
+  font-size: 12px;
+  color: #595959;
+  line-height: 1.5;
+}
+
+.period-list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 0 12px 24px;
+}
+
+.period-card {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+}
+
+.period-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.time-tip {
+  font-size: 12px;
+  color: #969799;
+}
+
+.period-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed #ebedf0;
 }
 </style>

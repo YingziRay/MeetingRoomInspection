@@ -8,6 +8,7 @@ import type {
   InspectionIndicator,
   RoomIndicatorItem,
   StandardPhoto,
+  InspectionPeriodConfig,
 } from '../types'
 
 const apiClient = axios.create({
@@ -177,4 +178,26 @@ export const dashboardApi = {
     return `/api/v1/dashboard/export?${searchParams.toString()}`
   },
 }
+
+export const periodApi = {
+  // 获取巡检时段列表
+  list: () => apiClient.get<InspectionPeriodConfig[]>('/inspection-periods'),
+  // 更新指定时段配置与时间
+  update: (
+    periodCode: string,
+    data: {
+      period_name?: string
+      start_time: string
+      deadline_time: string
+      enabled?: boolean
+      reminder_enabled?: boolean
+    }
+  ) => apiClient.put<InspectionPeriodConfig>(`/inspection-periods/${periodCode}`, data),
+  // 手动测试触发推送
+  triggerTest: (periodCode: string) =>
+    apiClient.post<{ status: string; message: string; period_code: string }>(
+      `/inspection-periods/${periodCode}/trigger`
+    ),
+}
+
 

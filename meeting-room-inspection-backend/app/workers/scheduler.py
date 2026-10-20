@@ -66,14 +66,16 @@ def generate_and_notify_period(period_code: str):
             })
 
         # 2. Push Notification
-        notifier = get_notification_service()
-        notifier.notify_new_inspection_tasks(
-            tasks_info=tasks_info,
-            period_name=period_name,
-            inspection_date=str(today),
-        )
-
-        print(f"[{datetime.now()}] Generated {len(tasks_info)} tasks for {period_name} and dispatched notifications.")
+        if period_cfg is None or period_cfg.reminder_enabled:
+            notifier = get_notification_service()
+            notifier.notify_new_inspection_tasks(
+                tasks_info=tasks_info,
+                period_name=period_name,
+                inspection_date=str(today),
+            )
+            print(f"[{datetime.now()}] Generated {len(tasks_info)} tasks for {period_name} and dispatched notifications.")
+        else:
+            print(f"[{datetime.now()}] Generated {len(tasks_info)} tasks for {period_name} (DingTalk reminder disabled).")
 
     except Exception as e:
         print(f"Error in scheduler job for period {period_code}: {e}")
@@ -121,3 +123,32 @@ def shutdown_scheduler():
     if scheduler.running:
         scheduler.shutdown(wait=False)
         print("APScheduler stopped.")
+
+
+def reschedule_period_job(period_code: str, hour: int, minute: int, enabled: bool = True):
+    """
+    Dynamically register or update a cron job in APScheduler for an inspection period.
+    """
+    if not settings.scheduler_enabled:
+        return
+
+    job_id = f"job_inspection_{period_code.lower()}"
+
+    if not enabled:
+        if scheduler.get_job(job_id):
+            scheduler.remove_job(job_id)
+            print(f"[-] Removed inspection cron [{job_id}]")
+        return
+
+    # Add or update job
+    scheduler.add_job(
+        generate_and_notify_period,
+        trigger="cron",
+        hour=hour,
+        minute=minute,
+        args=[period_code],
+        id=job_id,
+        replace_existing=True,
+    )
+    print(f"[✓] Dynamic reschedule: [{job_id}] -> {hour:02d}:{minute:02d} daily")
+

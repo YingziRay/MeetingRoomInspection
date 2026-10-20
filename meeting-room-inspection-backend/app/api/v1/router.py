@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import (
     dashboard,
     indicators,
+    inspection_periods,
     inspection_tasks,
     notifications,
     photos,
@@ -16,6 +17,9 @@ api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboar
 api_router.include_router(rooms.router, prefix="/rooms", tags=["rooms"])
 api_router.include_router(
     indicators.router, prefix="/indicators", tags=["indicators"]
+)
+api_router.include_router(
+    inspection_periods.router, prefix="/inspection-periods", tags=["inspection-periods"]
 )
 api_router.include_router(
     inspection_tasks.router, prefix="/inspection-tasks", tags=["inspection-tasks"]

@@ -103,3 +103,16 @@ export interface StandardPhoto {
   created_at?: string
 }
 
+export interface InspectionPeriodConfig {
+  id: number
+  period_code: string
+  period_name: string
+  start_time: string
+  deadline_time: string
+  enabled: boolean
+  reminder_enabled: boolean
+  reminder_minutes: number
+  sort_order: number
+}
+
+
