@@ -299,8 +299,13 @@ def analyze_task_inspection(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        err_msg = str(e)
+        if "duplicate key" in err_msg:
+            err_msg = "巡检结果数据冲突 (唯一索引违规)"
+        elif len(err_msg) > 120:
+            err_msg = err_msg[:120] + "..."
         raise HTTPException(
             status_code=500,
-            detail=f"AI analysis failed: {str(e)}",
+            detail=f"AI分析服务异常: {err_msg}",
         )
 

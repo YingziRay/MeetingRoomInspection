@@ -225,7 +225,18 @@
         <span class="loading-main-text">多模态大模型正在逐项分析巡检指标...</span>
       </van-loading>
       <div class="loading-sub-text">
-        正在比对现场照片与基准标准图差异（约需 8~10 秒，请稍候）
+        正在比对现场照片与基准标准图差异（约需 8~15 秒，请稍候）
+      </div>
+      <div class="loading-fallback-actions">
+        <van-button
+          size="small"
+          plain
+          round
+          type="primary"
+          @click="currentStep = 0"
+        >
+          返回核对照片 / 重新识别
+        </van-button>
       </div>
     </div>
 
@@ -444,9 +455,8 @@ const loadTaskState = async () => {
     } else if (taskInfo.value.status === 'WAITING_CONFIRM') {
       currentStep.value = 2
       await loadResults()
-    } else if (taskInfo.value.status === 'AI_ANALYZING') {
-      currentStep.value = 1
     } else {
+      // 无论此前处于 PENDING、IN_PROGRESS 还是异常中断遗留的 AI_ANALYZING，均进入规范拍照主视图
       currentStep.value = 0
     }
   } catch (e: any) {
@@ -524,7 +534,11 @@ const startAiAnalysis = async () => {
     currentStep.value = 2
     showSuccessToast('AI研判完成')
   } catch (e: any) {
-    showToast('AI识别失败: ' + (e.message || '请重试'))
+    const errDetail = e.response?.data?.detail || e.message || '请重试'
+    showToast({
+      message: 'AI识别失败: ' + errDetail,
+      duration: 4000,
+    })
     currentStep.value = 0
   } finally {
     analyzing.value = false
@@ -879,5 +893,9 @@ onMounted(() => {
 .back-btn-box {
   width: 100%;
   max-width: 280px;
+}
+
+.loading-fallback-actions {
+  margin-top: 24px;
 }
 </style>

@@ -18,19 +18,30 @@ from app.integrations.vision.base import (
 def encode_image_for_vlm(image_path: str, max_dimension: int = 1600) -> str:
     """
     Reads image from local path, downsizes if larger than max_dimension, and returns base64 data URL.
+    Handles relative, absolute, and /uploads/ URL prefixes robustly.
     """
-    path = Path(image_path)
-    # If path starts with /uploads, strip leading slash
-    if str(image_path).startswith("/uploads"):
-        path = Path(str(image_path).lstrip("/"))
+    path_str = str(image_path).strip()
+    if "/uploads/" in path_str:
+        path_str = "uploads/" + path_str.split("/uploads/", 1)[1]
+    elif path_str.startswith("/uploads"):
+        path_str = path_str.lstrip("/")
 
-    if not path.exists():
-        # Try relative to current working directory
-        cwd_path = Path.cwd() / path
-        if cwd_path.exists():
-            path = cwd_path
-        else:
-            raise FileNotFoundError(f"Image not found at path: {image_path}")
+    path = Path(path_str)
+    if not path.is_absolute() or not path.exists():
+        candidates = [
+            path,
+            Path.cwd() / path,
+            Path("/app") / path,
+            Path("/app/uploads") / (path.name if "uploads" in str(path) else path),
+        ]
+        found = False
+        for c in candidates:
+            if c.exists():
+                path = c
+                found = True
+                break
+        if not found:
+            raise FileNotFoundError(f"Image not found at path: {image_path} (checked: {[str(c) for c in candidates]})")
 
     with Image.open(path) as img:
         img = img.convert("RGB")
@@ -77,33 +88,34 @@ class OpenAIVisionProvider(VisionModelProvider):
         if not self.client:
             return self._mock_analysis(indicators, start_time)
 
-        # 1. Encode standard and live images
-        std_b64 = encode_image_for_vlm(standard_image_path)
-        live_b64 = encode_image_for_vlm(live_image_path)
+        try:
+            # 1. Encode standard and live images
+            std_b64 = encode_image_for_vlm(standard_image_path)
+            live_b64 = encode_image_for_vlm(live_image_path)
 
-        # 2. Build indicators prompt description
-        indicators_desc = []
-        for idx, item in enumerate(indicators, 1):
-            region_str = "全图"
-            if item.get("region"):
-                r = item["region"]
-                region_str = f"重点区域: x={r.get('x')}, y={r.get('y')}, width={r.get('width')}, height={r.get('height')} (归一化0~1坐标)"
-            indicators_desc.append(
-                f"{idx}. 【{item['indicator_name']}】 (编码: {item['indicator_code']})\n"
-                f"   - 区域定位: {region_str}\n"
-                f"   - 正常规范: {item.get('normal_condition', '无')}\n"
-                f"   - 异常情况: {item.get('abnormal_condition', '无')}"
-            )
-        indicators_text = "\n".join(indicators_desc)
+            # 2. Build indicators prompt description
+            indicators_desc = []
+            for idx, item in enumerate(indicators, 1):
+                region_str = "全图"
+                if item.get("region"):
+                    r = item["region"]
+                    region_str = f"重点区域: x={r.get('x')}, y={r.get('y')}, width={r.get('width')}, height={r.get('height')} (归一化0~1坐标)"
+                indicators_desc.append(
+                    f"{idx}. 【{item['indicator_name']}】 (编码: {item['indicator_code']})\n"
+                    f"   - 区域定位: {region_str}\n"
+                    f"   - 正常规范: {item.get('normal_condition', '无')}\n"
+                    f"   - 异常情况: {item.get('abnormal_condition', '无')}"
+                )
+            indicators_text = "\n".join(indicators_desc)
 
-        perspective_map = {
-            "FRONT": "前视角 (正门入口 → 会议桌/幕布全景)",
-            "REAR": "后视角 (发言席 → 后排座椅/大门全景)",
-            "AC_PANEL": "空调开关界面 (墙面温控面板特写近拍)",
-        }
-        perspective_desc = perspective_map.get(photo_type, f"{photo_type}视角")
+            perspective_map = {
+                "FRONT": "前视角 (正门入口 → 会议桌/幕布全景)",
+                "REAR": "后视角 (发言席 → 后排座椅/大门全景)",
+                "AC_PANEL": "空调开关界面 (墙面温控面板特写近拍)",
+            }
+            perspective_desc = perspective_map.get(photo_type, f"{photo_type}视角")
 
-        prompt = f"""
+            prompt = f"""
 你是一名专业的企业级会议室智能巡检专家。
 请仔细对比提供的两张会议室图片：
 - 图 1 是【标准规范基准参考图】（代表符合规范的标准状态）
@@ -134,8 +146,6 @@ class OpenAIVisionProvider(VisionModelProvider):
 }}
 """
 
-
-        try:
             response = self.client.chat.completions.create(
                 model=self.model_name,
                 messages=[
